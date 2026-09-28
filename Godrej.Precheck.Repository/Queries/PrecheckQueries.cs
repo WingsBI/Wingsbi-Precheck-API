@@ -1051,16 +1051,17 @@ ORDER BY
       qs.qrcodestatus as Status,  -- <== Added QR Code Status here
       q.refdocremarks AS Remarks,
       q.fanmannumber AS FanManNo,
+      un.unitname AS Unit,
       ROW_NUMBER() OVER (
            PARTITION BY q.drawingnumberid, q.productionseriesid
-           ORDER BY 
-               CASE 
-                   WHEN d.isexpiry = 1 THEN q.expirydate 
-                   ELSE q.manufacturingdate 
+           ORDER BY
+               CASE
+                   WHEN d.isexpiry = 1 THEN q.expirydate
+                   ELSE q.manufacturingdate
                END DESC
       ) AS rnk
    FROM tbl_qrcodedetails q
-   INNER JOIN tbl_drawingnumber d 
+   INNER JOIN tbl_drawingnumber d
        ON q.drawingnumberid = d.id
    INNER JOIN tbl_productionseries tps
        ON tps.id = q.productionseriesid
@@ -1070,6 +1071,8 @@ ORDER BY
        ON stl.id = l.racklocationid
    LEFT JOIN tbl_qrcodestatus qs  -- <== Join for QR code status
        ON q.qrcodestatusid = qs.id
+   LEFT JOIN tbl_unit un
+       ON un.id = q.unitid AND un.isactive = 1
    WHERE q.qrcodestatusid = 1
      AND q.drawingnumberid = @drawingnumberid
     AND q.isactive=1
@@ -1105,6 +1108,7 @@ ORDER BY expirydate, manufacturingdate;
       qs.qrcodestatus as Status,  -- <== Added QR Code Status here
       q.refdocremarks AS Remarks,
       q.fanmannumber AS FanManNo,
+      un.unitname AS Unit,
       ROW_NUMBER() OVER (
            PARTITION BY q.drawingnumberid, q.productionseriesid
            ORDER BY
@@ -1124,6 +1128,8 @@ ORDER BY expirydate, manufacturingdate;
        ON stl.id = l.racklocationid
    LEFT JOIN tbl_qrcodestatus qs  -- <== Join for QR code status
        ON q.qrcodestatusid = qs.id
+   LEFT JOIN tbl_unit un
+       ON un.id = q.unitid AND un.isactive = 1
    WHERE q.qrcodestatusid = 1
      AND q.drawingnumberid = @drawingnumberid
     AND q.isactive=1

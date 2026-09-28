@@ -28,6 +28,12 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
         Task<List<QRCodeDetailsResponseDto>> GetConsumedQRCodeDetailsWithParameterService(GetQRCodeRequestDto getQRCodeRequest);
         Task<QRCodeDetailsResponseDto> ComponentStoreInService(string QRCodeNumber);
 
+        Task<BulkStoreInResponseDto> BulkComponentStoreInService(List<string> qrCodeNumbers);
+
+        Task<BulkStoreInResponseDto> BulkComponentStoreInFromExcelService(Stream fileStream);
+
+        Task<byte[]> BulkStoreInTemplateService();
+
         byte[] ExportQRCodeToExcel(List<QRCodeDetailsResponseDto> qrCodeItems, List<string>? selectedColumns = null);
         Task<List<ConsumedInResponseDto>> ConsumedInService(ConsumedInRequestDto request);
 
