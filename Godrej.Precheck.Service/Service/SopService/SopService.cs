@@ -591,8 +591,8 @@ namespace Godrej.Precheck.Service.Service.SopService
             ("srNo", "Sr No", 6, false, item => item.SerialNumber.ToString()),
             ("level", "Level", 8, false, item => item.Level.ToString()),
             ("positionNumber", "Position Number", 14, false, item => item.FindNo),
-            ("drawingNumber", "Drawing No.", 20, true, item => item.DrawingNumber),
-            ("nomenclature", "Nomenclature", 25, true, item => item.Nomenclature),
+            ("drawingNumber", "Part No.", 20, true, item => item.DrawingNumber),
+            ("nomenclature", "Item Description", 25, true, item => item.Nomenclature),
             ("buildNumber", "Build number", 10, false, item => item.Build),
             ("quantity", "Qty", 6, false, item => item.Quantity),
             ("idNumber", "ID No", 12, false, item => item.IdNumber),
@@ -887,9 +887,9 @@ namespace Godrej.Precheck.Service.Service.SopService
         private static readonly (string Key, string Header, Func<BomDetailsResponseDto, string> GetValue)[] BomExportColumnDefinitions = new (string, string, Func<BomDetailsResponseDto, string>)[]
         {
             ("level", "Level", item => item.Level.ToString()),
-            ("childDrawingNumber", "Drawing Number", item => item.ChildDrawingNumber ?? string.Empty),
-            ("nomenclature", "Nomenclature", item => item.Nomenclature ?? string.Empty),
-            ("lnItemCode", "LN Item Code", item => item.LnItemCode ?? string.Empty),
+            ("childDrawingNumber", "Part Number", item => item.ChildDrawingNumber ?? string.Empty),
+            ("nomenclature", "Item Description", item => item.Nomenclature ?? string.Empty),
+            ("lnItemCode", "Item Code", item => item.LnItemCode ?? string.Empty),
             ("componentType", "Component Type", item => item.ComponentType ?? string.Empty),
             ("quantity", "Qty", item => item.Quantity?.ToString() ?? string.Empty),
             ("findNo", "Find No", item => item.FindNo ?? string.Empty),

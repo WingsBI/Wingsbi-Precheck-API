@@ -617,6 +617,13 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
                     throw new Exception("QR code already consumed.");
                 }
 
+                // Must exist in tbl_qrcodedetails with qrcodestatusid = 3 before it can be stored in.
+                if (qrcodeInformation.QrCodeStatusId != 3)
+                {
+                    _logger.LogWarning("QR code {QRCodeNumber} is not eligible for store-in, qrcodestatusid: {QrCodeStatusId}", QRCodeNumber, qrcodeInformation.QrCodeStatusId);
+                    throw new Exception($"QR code is not eligible for store-in. Current status: {qrcodeInformation.QrCodeStatus ?? "Unknown"}.");
+                }
+
                 var storeInResult = await _qrCodeRepository.ComponentStoreIn(QRCodeNumber);
 
                 var componentDetails = await _qrCodeRepository.GetQRcodeDetailsAsync(QRCodeNumber);
@@ -633,6 +640,121 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
         }
 
 
+
+        public Task<byte[]> BulkStoreInTemplateService()
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("BulkStoreIn");
+
+            var headers = new[] { "Sr. No.", "QrCodeNumber" };
+            for (int col = 0; col < headers.Length; col++)
+            {
+                worksheet.Cell(1, col + 1).Value = headers[col];
+            }
+
+            var headerRow = worksheet.Row(1);
+            headerRow.Style.Font.Bold = true;
+            headerRow.Style.Fill.BackgroundColor = XLColor.FromHtml("#E11584"); // Godrej Pink
+            headerRow.Style.Font.FontColor = XLColor.White;
+            worksheet.Columns().AdjustToContents();
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            return Task.FromResult(stream.ToArray());
+        }
+
+        // Expected layout (first worksheet, matches BulkStoreInTemplateService): Row 1 = headers
+        // (Sr. No. | QrCodeNumber), Row 2+ = one QR code per row in column 2.
+        public async Task<BulkStoreInResponseDto> BulkComponentStoreInFromExcelService(Stream fileStream)
+        {
+            using var workbook = new XLWorkbook(fileStream);
+            var worksheet = workbook.Worksheets.First();
+
+            var qrCodeNumbers = new List<string>();
+            var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 0;
+            for (int row = 2; row <= lastRow; row++)
+            {
+                var qrCodeNumber = worksheet.Cell(row, 2).GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(qrCodeNumber))
+                {
+                    qrCodeNumbers.Add(qrCodeNumber);
+                }
+            }
+
+            if (!qrCodeNumbers.Any())
+            {
+                throw new ApplicationException("No QR code numbers found starting at row 2.");
+            }
+
+            return await BulkComponentStoreInService(qrCodeNumbers);
+        }
+
+        // Reuses ComponentStoreInService per QR code (same validations/business rules/DB update as the
+        // single-QR ComponentStoreIn API), so one invalid/failed QR code can't affect the others in the
+        // batch -- each iteration's exception is caught and recorded against that QR code only.
+        public async Task<BulkStoreInResponseDto> BulkComponentStoreInService(List<string> qrCodeNumbers)
+        {
+            var response = new BulkStoreInResponseDto();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var rawQrCodeNumber in qrCodeNumbers ?? new List<string>())
+            {
+                var qrCodeNumber = rawQrCodeNumber?.Trim();
+
+                if (string.IsNullOrWhiteSpace(qrCodeNumber))
+                {
+                    response.Results.Add(new BulkStoreInResultDto
+                    {
+                        QrCodeNumber = rawQrCodeNumber,
+                        Success = false,
+                        Message = "QR code number is empty."
+                    });
+                    continue;
+                }
+
+                if (!seen.Add(qrCodeNumber))
+                {
+                    response.Results.Add(new BulkStoreInResultDto
+                    {
+                        QrCodeNumber = qrCodeNumber,
+                        Success = false,
+                        Message = "Duplicate QR code number in this request; already processed above."
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    var componentDetails = await ComponentStoreInService(qrCodeNumber);
+                    response.Results.Add(new BulkStoreInResultDto
+                    {
+                        QrCodeNumber = qrCodeNumber,
+                        Success = true,
+                        Message = "Component stored in successfully.",
+                        Data = componentDetails
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error occurred during bulk component store-in for QR code: {QRCodeNumber}", qrCodeNumber);
+                    response.Results.Add(new BulkStoreInResultDto
+                    {
+                        QrCodeNumber = qrCodeNumber,
+                        Success = false,
+                        Message = ex.Message
+                    });
+                }
+            }
+
+            response.TotalCount = response.Results.Count;
+            response.SuccessCount = response.Results.Count(r => r.Success);
+            response.FailureCount = response.TotalCount - response.SuccessCount;
+
+            _logger.LogInformation("BulkComponentStoreInService completed: {SuccessCount} succeeded, {FailureCount} failed out of {TotalCount}",
+                response.SuccessCount, response.FailureCount, response.TotalCount);
+
+            return response;
+        }
 
         public async Task<List<QRCodeDetailsResponseDto>> GetComponentStoreInByDateService(StoredInQrCodeRequest storeInRequest)
         {
@@ -673,9 +795,9 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
             ("sr", "Sr. No.", item => item.SrNo),
             ("qrCodeNumber", "QRCodeNumber", item => item.QrCodeNumber),
             ("projectNumber", "Project Number", item => item.ProjectNumber),
-            ("drawingNumber", "Drawing Number", item => item.DrawingNumber),
+            ("drawingNumber", "Part Number", item => item.DrawingNumber),
             ("productionSeries", "Production Series", item => item.ProductionSeries),
-            ("nomenclature", "Nomenclature", item => item.Nomenclature),
+            ("nomenclature", "Item Description", item => item.Nomenclature),
             ("componentType", "Component Type", item => item.ComponentType),
             ("batchIdNumber", "Batch Idnumber", item => item.BatchID),
             ("unitName", "Unit Name", item => item.UnitName),
@@ -693,7 +815,7 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
             ("purchaseOrderNumber", "Purchase Order Number", item => item.PurchaseOrderNumber),
             ("rackLocation", "Rack Location", item => item.RackLocation),
             ("assemblyNumber", "Assembly Number", item => item.AssemblyNumber),
-            ("lnItemCode", "LN Item Code", item => item.LnItemCode),
+            ("lnItemCode", "Item Code", item => item.LnItemCode),
             ("qrCodeStatus", "QRCode Status", item => item.QrCodeStatus),
             ("consumedInDrawing", "Consumed In Drawing", item => item.ConsumedInDrawing),
             ("remark", "Remark", item => item.Remark),
@@ -1079,9 +1201,9 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
             ("sr", "Sr. No.", item => item.SrNo),
             ("qrCodeNumber", "QRCodeNumber", item => item.QrCodeNumber),
             ("projectNumber", "Project Number", item => item.ProjectNumber),
-            ("drawingNumber", "Drawing Number", item => item.DrawingNumber),
+            ("drawingNumber", "Part Number", item => item.DrawingNumber),
             ("productionSeries", "Production Series", item => item.ProductionSeries),
-            ("nomenclature", "Nomenclature", item => item.Nomenclature),
+            ("nomenclature", "Item Description", item => item.Nomenclature),
             ("componentType", "Component Type", item => item.ComponentType),
             ("idNumber", "ID Number", item => item.IdNumber),
             ("batchIdNumber", "Batch Idnumber", item => item.BatchID),
@@ -1098,7 +1220,7 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
             ("purchaseOrderNumber", "Purchase Order Number", item => item.PurchaseOrderNumber),
             ("rackLocation", "Rack Location", item => item.RackLocation),
             ("assemblyNumber", "Assembly Number", item => item.AssemblyNumber),
-            ("lnItemCode", "LN Item Code", item => item.LnItemCode),
+            ("lnItemCode", "Item Code", item => item.LnItemCode),
             ("qrCodeStatus", "QRCode Status", item => item.QrCodeStatus),
             ("consumedInDrawing", "Consumed In Drawing", item => item.ConsumedInDrawing),
             ("remark", "Remark", item => item.ProjectDescription),
@@ -1282,7 +1404,7 @@ namespace Godrej.Precheck.Service.Service.QRCodeService
         // Common fields first (same naming/order convention as the main QR export), ConsumedIn-only columns last
         private static readonly string[] ConsumedInHeaders = new string[]
         {
-            "ID Number", "LN Item Code", "IR Number", "MSN Number", "Quantity",
+            "ID Number", "Item Code", "IR Number", "MSN Number", "Quantity",
             "Consumed In Drawing", "Consumed In Production Order Number", "Username", "Date",
             "IsRejected", "RejectionReason"
         };

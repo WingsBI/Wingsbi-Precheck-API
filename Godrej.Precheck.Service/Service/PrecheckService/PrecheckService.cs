@@ -496,7 +496,7 @@ namespace Godrej.Precheck.Service.Service.PrecheckService
 
             var headers = new[]
             {
-                "Level", "Drawing Number", "Nomenclature", "LN Item Code", "Component Type",
+                "Level", "Part Number", "Item Description", "Item Code", "Component Type",
                 "Qty", "Parent Drawing", "Find No", "ProductionOrderNumber", "IdNumber", "QRCodeNumber"
             };
 
@@ -917,7 +917,7 @@ namespace Godrej.Precheck.Service.Service.PrecheckService
             int headerRow = 1;
             var headers = new[]
             {
-                "Sr No", "Assembly PO Number", "Assembly ID No", "Drawing Number", "LN Item Code",
+                "Sr No", "Assembly PO Number", "Assembly ID No", "Part Number", "Item Code",
                 "Prod Series", "Qty", "Remaining Qty", "Created Date", "Status"
             };
 
@@ -1408,9 +1408,9 @@ namespace Godrej.Precheck.Service.Service.PrecheckService
         private static readonly (string Key, string Header, Func<ViewPreCheckResponse, string> GetValue)[] PrecheckExportColumnDefinitions = new (string, string, Func<ViewPreCheckResponse, string>)[]
         {
             ("sr", "Sr. No.", item => item.SrNumber?.ToString() ?? string.Empty),
-            ("lnItemCode", "LN Item Code", item => item.LnItemCode ?? string.Empty),
-            ("drawingNumber", "Drawing Number", item => item.DrawingNumber ?? string.Empty),
-            ("nomenclature", "Nomenclature", item => item.Nomenclature ?? string.Empty),
+            ("lnItemCode", "Item Code", item => item.LnItemCode ?? string.Empty),
+            ("drawingNumber", "Part Number", item => item.DrawingNumber ?? string.Empty),
+            ("nomenclature", "Item Description", item => item.Nomenclature ?? string.Empty),
             ("quantity", "Quantity", item => item.Quantity?.ToString("0.####") ?? string.Empty),
             ("scannedQuantity", "Scanned Quantity", item => (item.Quantity.HasValue && item.RemainingQuantity.HasValue)
                 ? (item.Quantity.Value - item.RemainingQuantity.Value).ToString("0.####")
@@ -1505,6 +1505,19 @@ namespace Godrej.Precheck.Service.Service.PrecheckService
         {
             var response = _precheckRepository.GetAvailableComponentForOrder(request);
             return response;
+        }
+
+        public async Task<GetAvailableComponentsPagedResponse> GetAvailableComponentServicePaged(GetAvailableComponentsRequest request, int pageNumber, int pageSize)
+        {
+            var (items, totalRecords) = await _precheckRepository.GetAvailableComponentForOrderPaged(request, pageNumber, pageSize);
+
+            return new GetAvailableComponentsPagedResponse
+            {
+                Data = items,
+                TotalRecords = totalRecords,
+                PageNumber = pageNumber,
+                PageSize = pageSize
+            };
         }
 
         public async Task<int> RejectAndDuplicatePrecheck(RejectPrecheckRequestDto request)

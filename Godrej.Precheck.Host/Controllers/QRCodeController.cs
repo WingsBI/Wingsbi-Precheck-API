@@ -401,11 +401,75 @@ namespace Godrej.Precheck.Host.Controllers
                 {
                     return NotFound(new { message = ex.Message });
                 }
-                else if (ex.Message == "QR code already consumed.")
+                else if (ex.Message == "QR code already consumed." || ex.Message.StartsWith("QR code is not eligible for store-in."))
                 {
                     return BadRequest(new { message = ex.Message });
                 }
 
+                return StatusCode(500, new { message = "An error occurred while processing your request. Please try again later." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("BulkStoreInTemplate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> BulkStoreInTemplate()
+        {
+            _logger.LogInformation("Request received for BulkStoreInTemplate");
+
+            try
+            {
+                var fileBytes = await _qrCodeService.BulkStoreInTemplateService();
+                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "BulkStoreIn_Template.xlsx");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in BulkStoreInTemplate");
+                return StatusCode(500, new { message = "An error occurred while processing your request. Please try again later." });
+            }
+        }
+
+        // Bulk equivalent of ComponentStoreIn for QR code numbers uploaded via Excel: reuses the exact
+        // same per-QR validations/business rules (see QRCodeService.ComponentStoreInService), just looped
+        // over the list so one invalid/failed QR code doesn't stop the rest from being processed.
+        [Authorize]
+        [HttpPost("BulkStoreInFromExcel")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> BulkStoreInFromExcel(IFormFile file)
+        {
+            _logger.LogInformation("Request received for BulkStoreInFromExcel, file: {FileName}", file?.FileName);
+
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "No file uploaded" });
+            }
+
+            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
+                !file.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Invalid file format. Please upload an Excel file (.xlsx or .xls)" });
+            }
+
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var result = await _qrCodeService.BulkComponentStoreInFromExcelService(stream);
+
+                _logger.LogInformation("BulkStoreInFromExcel completed: {SuccessCount} succeeded, {FailureCount} failed out of {TotalCount}",
+                    result.SuccessCount, result.FailureCount, result.TotalCount);
+
+                return Ok(result);
+            }
+            catch (ApplicationException ex)
+            {
+                _logger.LogError(ex, "BulkStoreInFromExcel - Application error occurred");
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in BulkStoreInFromExcel");
                 return StatusCode(500, new { message = "An error occurred while processing your request. Please try again later." });
             }
         }
