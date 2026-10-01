@@ -10,6 +10,7 @@ namespace Godrej.Precheck.Models.DTOs.Chatbot
         public string? LnItemCode { get; set; }
         public string? DrawingNumber { get; set; }
         public int? Quantity { get; set; }
-        public DateTime? CreatedDate { get; set; }
+        public DateTime? CreatedDate { get; set; } 
     }
 }
+
