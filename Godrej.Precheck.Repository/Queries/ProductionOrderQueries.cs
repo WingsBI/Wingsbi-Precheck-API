@@ -81,48 +81,42 @@ namespace Godrej.Precheck.Repository.Queries
             LEFT JOIN PrecheckStatusCalc psc ON pom.id = psc.productionordernumberid
             LEFT JOIN tbl_productionseries ps ON pom.prodseriesid = ps.id
             LEFT JOIN tbl_drawingnumber dn ON pom.drawingnumberid = dn.id
-            LEFT JOIN (
-                SELECT
-                    dnm.drawingnumberid,
-                    STRING_AGG(nom.nomenclature, ', ') AS nomenclature
+            -- Correlated per-row lookups (OUTER APPLY) instead of joining pre-aggregated STRING_AGG
+            -- subqueries over the entire mapping tables - same fix applied to GET_FILTERED_PRODUCTION_ORDERS
+            -- after it was found to hang indefinitely on SQL Server Express (RESOURCE_SEMAPHORE memory
+            -- grant wait) because the old shape forced aggregating every drawing number in the system
+            -- before any filter could discard rows.
+            OUTER APPLY (
+                SELECT STRING_AGG(nomm.nomenclature, ', ') AS nomenclature
                 FROM tbl_drawingnomenclaturemapping dnm
-                JOIN tbl_nomenclature nom
-                    ON dnm.nomenclatureid = nom.id
-                WHERE dnm.isactive = 1
-                  AND nom.isactive = 1
-                GROUP BY dnm.drawingnumberid
+                JOIN tbl_nomenclature nomm ON dnm.nomenclatureid = nomm.id
+                WHERE dnm.drawingnumberid = dn.id
+                  AND dnm.isactive = 1
+                  AND nomm.isactive = 1
             ) nom
-                ON dn.id = nom.drawingnumberid
-            LEFT JOIN (
-                SELECT
-                    dctm.drawingnumberid,
-                    STRING_AGG(ct.componenttype, ', ') AS componenttype
+            OUTER APPLY (
+                SELECT STRING_AGG(ctt.componenttype, ', ') AS componenttype
                 FROM tbl_drawingcomponenttypemapping dctm
-                JOIN tbl_componenttype ct
-                    ON dctm.componenttypeid = ct.id
-                WHERE dctm.isactive = 1
-                  AND ct.isactive = 1
-                GROUP BY dctm.drawingnumberid
+                JOIN tbl_componenttype ctt ON dctm.componenttypeid = ctt.id
+                WHERE dctm.drawingnumberid = dn.id
+                  AND dctm.isactive = 1
+                  AND ctt.isactive = 1
             ) ct
-                ON dn.id = ct.drawingnumberid
-            LEFT JOIN (
-                SELECT
-                    dlm.drawingnumberid,
-                    STRING_AGG(sl.racklocation, ', ') AS racklocation
+            OUTER APPLY (
+                SELECT STRING_AGG(sll.racklocation, ', ') AS racklocation
                 FROM tbl_drawingnlnitemlocationmapping dlm
-                JOIN tbl_storeitemlocation sl
-                    ON dlm.racklocationid = sl.id
-                WHERE dlm.isactive = 1
-                  AND sl.isactive = 1
-                GROUP BY dlm.drawingnumberid
+                JOIN tbl_storeitemlocation sll ON dlm.racklocationid = sll.id
+                WHERE dlm.drawingnumberid = dn.id
+                  AND dlm.isactive = 1
+                  AND sll.isactive = 1
             ) sl
-                ON dn.id = sl.drawingnumberid
             WHERE pom.isactive = 1
               AND (@AssemblyDrawingNumberId IS NULL OR pom.drawingnumberid = @AssemblyDrawingNumberId)
               AND (@ProdSeriesId IS NULL OR pom.prodseriesid = @ProdSeriesId)
               AND (@ProductionOrderNumber IS NULL OR pom.productionordernumber = @ProductionOrderNumber)
               AND (@LnItemCode IS NULL OR pom.lnitemcode = @LnItemCode)
-            ORDER BY pom.createddate DESC";
+            ORDER BY pom.createddate DESC
+            OPTION (RECOMPILE)";
 
         #endregion
 

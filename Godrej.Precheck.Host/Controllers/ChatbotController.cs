@@ -57,6 +57,7 @@ namespace Godrej.Precheck.Host.Controllers
             try
             {
                 var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
+                var roleId = Convert.ToInt32(User.FindFirst("roleid")?.Value ?? "0");
 
                 _logger.LogInformation("Request for ChatbotController:Ask: {Message}", request.Message);
 
@@ -88,12 +89,15 @@ namespace Godrej.Precheck.Host.Controllers
                 await _chatbotService.AddMessageAsync(sessionId, "user", request.Message, null);
                 await _chatbotService.AddMessageAsync(sessionId, "assistant", response.Text, toolCalled);
 
+                var suggestedQuestions = await GetSuggestedQuestionsAsync(roleId, request.Message, response.Text);
+
                 var result = new ChatResponseDto
                 {
                     SessionId = sessionId,
                     Answer = response.Text,
                     ToolCalled = toolCalled,
-                    Data = data
+                    Data = data,
+                    SuggestedQuestions = suggestedQuestions
                 };
 
                 _logger.LogInformation("Response for ChatbotController:Ask: SessionId={SessionId}, ToolCalled={ToolCalled}", sessionId, toolCalled);
@@ -121,6 +125,7 @@ namespace Godrej.Precheck.Host.Controllers
             }
 
             var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
+            var roleId = Convert.ToInt32(User.FindFirst("roleid")?.Value ?? "0");
 
             _logger.LogInformation("Request for ChatbotController:AskStream: {Message}", request.Message);
 
@@ -171,7 +176,9 @@ namespace Godrej.Precheck.Host.Controllers
                 await _chatbotService.AddMessageAsync(sessionId, "user", request.Message, null);
                 await _chatbotService.AddMessageAsync(sessionId, "assistant", response.Text, toolCalled);
 
-                var donePayload = JsonSerializer.Serialize(new { sessionId, toolCalled, data });
+                var suggestedQuestions = await GetSuggestedQuestionsAsync(roleId, request.Message, response.Text);
+
+                var donePayload = JsonSerializer.Serialize(new { sessionId, toolCalled, data, suggestedQuestions });
                 await Response.WriteAsync($"event: done\ndata: {donePayload}\n\n", HttpContext.RequestAborted);
                 await Response.Body.FlushAsync(HttpContext.RequestAborted);
 
@@ -215,7 +222,7 @@ namespace Godrej.Precheck.Host.Controllers
             return (sessionId, session);
         }
 
-        private AIAgent BuildAgent()
+        private ChatClient BuildChatClient()
         {
             var endpoint = _configuration["AzureOpenAI:Endpoint"]
                 ?? throw new InvalidOperationException("AzureOpenAI:Endpoint is not configured.");
@@ -225,7 +232,12 @@ namespace Godrej.Precheck.Host.Controllers
                 ?? throw new InvalidOperationException("AzureOpenAI:ApiKey is not configured. Set it via dotnet user-secrets.");
 
             var client = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
-            ChatClient chatClient = client.GetChatClient(deploymentName);
+            return client.GetChatClient(deploymentName);
+        }
+
+        private AIAgent BuildAgent()
+        {
+            var chatClient = BuildChatClient();
 
             IList<AITool> tools = new List<AITool>
             {
@@ -237,9 +249,47 @@ namespace Godrej.Precheck.Host.Controllers
                 AIFunctionFactory.Create(_tools.GetAssembliesAsync, name: "get_assemblies"),
                 AIFunctionFactory.Create(_tools.GetAssemblyDrawingMappingsAsync, name: "get_assembly_drawing_mappings"),
                 AIFunctionFactory.Create(_tools.SearchLnItemCodeAsync, name: "search_ln_item_code"),
+                AIFunctionFactory.Create(_tools.GetQrCodeDetailsAsync, name: "get_qr_code_details"),
+                AIFunctionFactory.Create(_tools.GetStandardQrCodeDetailsAsync, name: "get_standard_qr_code_details"),
+                AIFunctionFactory.Create(_tools.SearchQrCodesAsync, name: "search_qr_codes"),
+                AIFunctionFactory.Create(_tools.GetIrNumbersAsync, name: "get_ir_numbers"),
+                AIFunctionFactory.Create(_tools.GetMsnNumbersAsync, name: "get_msn_numbers"),
+                AIFunctionFactory.Create(_tools.GetIrNumbersByDrawingAsync, name: "get_ir_numbers_by_drawing"),
+                AIFunctionFactory.Create(_tools.GetMsnNumbersByDrawingAsync, name: "get_msn_numbers_by_drawing"),
+                AIFunctionFactory.Create(_tools.GetPrecheckStatusAsync, name: "get_precheck_status"),
+                AIFunctionFactory.Create(_tools.GetPendingPrechecksAsync, name: "get_pending_prechecks"),
+                AIFunctionFactory.Create(_tools.GetConsumedInComponentsAsync, name: "get_consumed_in_components"),
+                AIFunctionFactory.Create(_tools.GetAvailableComponentsAsync, name: "get_available_components"),
             };
 
             return chatClient.AsAIAgent(instructions: SystemPrompt, tools: tools);
+        }
+
+        private async Task<List<string>> GetSuggestedQuestionsAsync(int roleId, string userMessage, string answerText)
+        {
+            try
+            {
+                var domainDescription = ChatbotRoles.GetDomainDescription(roleId);
+                IChatClient chatClient = BuildChatClient().AsIChatClient();
+
+                var messages = new List<Microsoft.Extensions.AI.ChatMessage>
+                {
+                    new(ChatRole.System,
+                        $"The user's role domain is: {domainDescription}. Given the exchange below, suggest up to 3 " +
+                        "short, relevant follow-up questions specific to that role's domain. Return only the structured result."),
+                    new(ChatRole.User, $"Question: {userMessage}\nAnswer: {answerText}")
+                };
+
+                var result = await chatClient.GetResponseAsync<SuggestedQuestionsResult>(messages);
+                return result.Result.Questions.Take(3).ToList();
+            }
+            catch (Exception ex)
+            {
+                // A failure here (e.g. rate limit) should never break the main answer that already
+                // succeeded - fall back to no suggestions rather than failing the whole request.
+                _logger.LogError(ex, "Exception Error for ChatbotController:GetSuggestedQuestionsAsync");
+                return new List<string>();
+            }
         }
     }
 }
