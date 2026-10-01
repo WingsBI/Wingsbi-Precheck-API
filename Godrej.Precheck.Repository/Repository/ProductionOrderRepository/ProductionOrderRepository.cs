@@ -403,7 +403,10 @@ namespace Godrej.Precheck.Repository.Repository.ProductionOrderRepository
 
                 if (precheckStatus.HasValue)
                 {
-                    statusFilter = " AND COALESCE(psc.CalculatedStatus, 1) = @PrecheckStatus";
+                    // Sargable form of "COALESCE(psc.CalculatedStatus, 1) = @PrecheckStatus" - wrapping the
+                    // column in COALESCE blinds the optimizer's cardinality estimate for this predicate,
+                    // which was a contributing cause of the oversized memory grant requests seen on this query.
+                    statusFilter = " AND (psc.CalculatedStatus = @PrecheckStatus OR (psc.CalculatedStatus IS NULL AND @PrecheckStatus = 1))";
                 }
 
                 if (!string.IsNullOrWhiteSpace(poNumber))

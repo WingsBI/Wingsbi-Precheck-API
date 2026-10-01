@@ -164,6 +164,10 @@ builder.Services.AddScoped<IBackupArchiveService, BackupArchiveService>();
 // Production Order Import
 builder.Services.AddScoped<Godrej.Precheck.Repository.Repository.ProductionOrderRepository.IProductionOrderRepository, Godrej.Precheck.Repository.Repository.ProductionOrderRepository.ProductionOrderRepository>();
 builder.Services.AddScoped<Godrej.Precheck.Service.Service.ProductionOrderService.IProductionOrderService, Godrej.Precheck.Service.Service.ProductionOrderService.ProductionOrderService>();
+// Chatbot Import
+builder.Services.AddScoped<Godrej.Precheck.Repository.Repository.ChatbotRepository.IChatbotRepository, Godrej.Precheck.Repository.Repository.ChatbotRepository.ChatbotRepository>();
+builder.Services.AddScoped<Godrej.Precheck.Service.Service.ChatbotService.IChatbotService, Godrej.Precheck.Service.Service.ChatbotService.ChatbotService>();
+builder.Services.AddScoped<Godrej.Precheck.Host.Agents.ChatbotTools>();
 // Cache
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICacheService, CacheService>();
