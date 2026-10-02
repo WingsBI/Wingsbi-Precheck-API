@@ -452,14 +452,44 @@ namespace Godrej.Precheck.Host.Agents
         }
 
         [Description("Get available QR codes (verified stock not yet consumed), grouped by drawing number and LN item " +
-            "code with total and remaining quantities, optionally filtered by a search term and/or Production Series.")]
-        public async Task<GetAvailableQrPagedResponse> GetAvailableQrCodesAsync(
+            "code with total and remaining quantities and the actual QR code numbers in each group, optionally " +
+            "filtered by a search term and/or Production Series.")]
+        public async Task<List<AvailableQrGroupSummaryDto>> GetAvailableQrCodesAsync(
             [Description("Free-text search matched against LN item code/drawing number. Omit if not specified.")] string? searchQuery,
             [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries)
         {
-            return await _qrCodeService.GetAvailableQrPagedService(
+            var grouped = await _qrCodeService.GetAvailableQrPagedService(
                 new GetAvailableQrRequest { SearchQuery = searchQuery, ProdSeries = prodSeries },
                 pageNumber: 1, pageSize: 200);
+
+            var result = new List<AvailableQrGroupSummaryDto>();
+            foreach (var group in grouped.Data)
+            {
+                // The grouped query aggregates counts/quantities per drawing number and doesn't carry
+                // individual QR code numbers - fetch them per group via the same per-component lookup
+                // get_available_components uses, keyed by the group's drawing number ID.
+                var components = await _precheckService.GetAvailableComponentService(new GetAvailableComponentsRequest
+                {
+                    DrawingNumberId = group.DrawingNumberId
+                });
+
+                result.Add(new AvailableQrGroupSummaryDto
+                {
+                    DrawingNumber = group.DrawingNumber,
+                    LnItemCode = group.LnItemCode,
+                    ProductionSeries = group.ProductionSeries,
+                    ComponentType = group.ComponentType,
+                    TotalQuantity = group.TotalQuantity,
+                    TotalRemainingQuantity = group.TotalRemainingQuantity,
+                    QrCount = group.QrCount,
+                    QrCodeNumbers = components
+                        .Select(c => c.QrCodeNumber)
+                        .Where(q => !string.IsNullOrEmpty(q))
+                        .ToList()!
+                });
+            }
+
+            return result;
         }
     }
 }
