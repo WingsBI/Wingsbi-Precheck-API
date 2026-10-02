@@ -18,12 +18,19 @@ namespace Godrej.Precheck.Host.Controllers
     public class ChatbotController : ControllerBase
     {
         private const string SystemPrompt =
-            "You are a data assistant for the Precheck Production Order system. " +
-            "Use the available tools to answer questions about Production Orders, Component Types, " +
-            "Drawing Numbers, Assemblies, and LN Item Codes. Map casual terms like \"in progress\"/\"open\" " +
-            "to the appropriate status value. If a question is outside these topics, do not call a tool - " +
-            "reply in plain text that you can only answer questions about these areas. Never invent data " +
-            "that wasn't returned by a tool.";
+            "You are a data assistant for the Precheck quality-verification system (a pre-assembly gate: " +
+            "every component gets a QR identity, is matched against its Production Order's BOM, and must " +
+            "pass a scan-and-verify 'Precheck' before it can move downstream). Use the available tools to " +
+            "answer questions about: Production Orders and their precheck status; Component Types, Drawing " +
+            "Numbers, Assemblies, and LN Item Codes; QR codes and IR/MSN number tracking; pending prechecks " +
+            "and available/consumed components; and downstream traceability - Stored In Components (verified " +
+            "stock on hand), Material Requisitions (stock issued into production), and Swapping Details " +
+            "(components swapped between drawing numbers/production orders). In this system, \"Part Number\" " +
+            "and \"Drawing Number\" refer to the same thing - treat them as interchangeable in any question " +
+            "or tool call. Map casual terms like \"in progress\"/\"open\" to the appropriate status value. " +
+            "If a question is outside these topics, " +
+            "do not call a tool - reply in plain text that you can only answer questions about these areas. " +
+            "Never invent data that wasn't returned by a tool.";
 
         private readonly ILogger<ChatbotController> _logger;
         private readonly ChatbotTools _tools;
@@ -257,6 +264,14 @@ namespace Godrej.Precheck.Host.Controllers
                 AIFunctionFactory.Create(_tools.GetPendingPrechecksAsync, name: "get_pending_prechecks"),
                 AIFunctionFactory.Create(_tools.GetConsumedInComponentsAsync, name: "get_consumed_in_components"),
                 AIFunctionFactory.Create(_tools.GetAvailableComponentsAsync, name: "get_available_components"),
+                AIFunctionFactory.Create(_tools.GetStoredInComponentsAsync, name: "get_stored_in_components"),
+                AIFunctionFactory.Create(_tools.GetMaterialRequisitionsAsync, name: "get_material_requisitions"),
+                AIFunctionFactory.Create(_tools.GetSwappingDetailsAsync, name: "get_swapping_details"),
+                AIFunctionFactory.Create(_tools.GetAvailableQrCodesAsync, name: "get_available_qr_codes"),
+                AIFunctionFactory.Create(_tools.GetPrecheckByPoSeriesIdAsync, name: "get_precheck_by_po_series_id"),
+                AIFunctionFactory.Create(_tools.SearchPrecheckRecordsAsync, name: "search_precheck_records"),
+                AIFunctionFactory.Create(_tools.GetAvailableComponentsByFilterAsync, name: "get_available_components_by_filter"),
+                AIFunctionFactory.Create(_tools.GetPrecheckAssemblyTemplateAsync, name: "get_precheck_assembly_template"),
             };
 
             return chatClient.AsAIAgent(instructions: SystemPrompt, tools: tools);

@@ -1,11 +1,14 @@
 using System.ComponentModel;
 using Godrej.Precheck.Models.DataModel;
+using Godrej.Precheck.Models.DataModel.Precheck;
 using Godrej.Precheck.Models.DTOs.Chatbot;
 using Godrej.Precheck.Models.DTOs.DrawingNumber;
 using Godrej.Precheck.Models.DTOs.IRNumber;
 using Godrej.Precheck.Models.DTOs.MSNNumber;
 using Godrej.Precheck.Models.DTOs.Precheck;
+using Godrej.Precheck.Models.DTOs.QRCodeDetails;
 using Godrej.Precheck.Service.Service.CommonService;
+using Godrej.Precheck.Service.Service.MaterialRequisitionService;
 using Godrej.Precheck.Service.Service.PrecheckService;
 using Godrej.Precheck.Service.Service.ProductionOrderService;
 using Godrej.Precheck.Service.Service.QRCodeService;
@@ -21,17 +24,20 @@ namespace Godrej.Precheck.Host.Agents
         private readonly IProductionOrderService _productionOrderService;
         private readonly IQRCodeService _qrCodeService;
         private readonly IPrecheckService _precheckService;
+        private readonly IMaterialRequisitionService _materialRequisitionService;
 
         public ChatbotTools(
             ICommonService commonService,
             IProductionOrderService productionOrderService,
             IQRCodeService qrCodeService,
-            IPrecheckService precheckService)
+            IPrecheckService precheckService,
+            IMaterialRequisitionService materialRequisitionService)
         {
             _commonService = commonService;
             _productionOrderService = productionOrderService;
             _qrCodeService = qrCodeService;
             _precheckService = precheckService;
+            _materialRequisitionService = materialRequisitionService;
         }
 
         [Description("Get Production Orders filtered by status, PO number, LN item code, and/or drawing number. " +
@@ -245,6 +251,111 @@ namespace Godrej.Precheck.Host.Agents
         // empty. drawingNumberId is now the required parameter; since that's an internal numeric ID
         // a chat user won't know, the description steers the model to resolve it via
         // get_drawing_numbers first.
+        // ---- Precheck records (View Precheck) ----
+
+        private static PrecheckRecordSummaryDto ToSummary(ViewPreCheckResponse r) => new()
+        {
+            ProductionOrderNumber = r.ProductionOrderNumber,
+            ProductionSeries = r.ProductionSeries,
+            DrawingNumber = r.DrawingNumber,
+            IdNumber = r.IdNumber,
+            QrCodeNumber = r.QrCodeNumber,
+            LnItemCode = r.LnItemCode,
+            ComponentType = r.ComponentType,
+            Quantity = r.Quantity,
+            RemainingQuantity = r.RemainingQuantity,
+            Unit = r.Unit,
+            PrecheckStatus = r.PrecheckStatus,
+            IsPrecheckComplete = r.IsPrecheckComplete,
+            IsRejected = r.IsRejected,
+            Remarks = r.Remarks,
+            PrecheckDate = r.PrecheckDate,
+            IrNumber = r.IrNumber,
+            MsnNumber = r.MsnNumber
+        };
+
+        [Description("Get precheck verification details for a specific unit, identified by Production Order number, " +
+            "Production Series name, and ID number. This is the authoritative per-unit precheck status/detail lookup - " +
+            "use it whenever the user asks about precheck status for a specific PO + series + ID number combination.")]
+        public async Task<List<PrecheckRecordSummaryDto>> GetPrecheckByPoSeriesIdAsync(
+            [Description("The exact Production Order number.")] string productionOrderNumber,
+            [Description("The Production Series name (e.g. 'H'). Resolved internally to its ID - pass the name, not a number.")] string productionSeries,
+            [Description("The ID number of the specific unit within the production order.")] int idNumber)
+        {
+            var series = await _commonService.ProductionSeriesByNameService(productionSeries);
+            if (series == null)
+            {
+                return new List<PrecheckRecordSummaryDto>();
+            }
+
+            var results = await _precheckService.ViewPrecheckDetailsService(new ViewPreCheckRequestDto
+            {
+                ProductionOrderNumber = productionOrderNumber,
+                ProductionSeriesId = series.Id,
+                Id = idNumber
+            });
+
+            return results.Select(ToSummary).ToList();
+        }
+
+        [Description("Search/list Precheck verification records, optionally filtered by free-text search (PO number/drawing " +
+            "number/LN item code), Production Series, status, and/or a date range.")]
+        public async Task<List<PrecheckRecordSummaryDto>> SearchPrecheckRecordsAsync(
+            [Description("Free-text search term matched against PO number, drawing number, LN item code. Omit if not specified.")] string? searchQuery,
+            [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries,
+            [Description("Status values to filter by: 'Completed', 'Pending', or 'Updated'. Omit to get all statuses.")] List<string>? status,
+            [Description("Start of date range to filter by. Omit if not specified.")] DateTime? fromDate,
+            [Description("End of date range to filter by. Omit if not specified.")] DateTime? toDate)
+        {
+            var result = await _precheckService.ViewPrecheckByParametersService(new ViewPrecheckFilterRequestDto
+            {
+                SearchQuery = searchQuery,
+                ProdSeries = prodSeries,
+                Status = status,
+                FromDate = fromDate,
+                ToDate = toDate
+            }, pageNumber: 1, pageSize: 200);
+
+            return result.Data.Select(ToSummary).ToList();
+        }
+
+        [Description("Get available (verified, not-yet-consumed) components, filtered by an exact QR code OR by a " +
+            "combination of free-text search, drawing number, Production Series, and/or status. Broader than " +
+            "get_available_components, which requires a resolved drawing number ID.")]
+        public async Task<List<AvailableComponentByFilterSummaryDto>> GetAvailableComponentsByFilterAsync(
+            [Description("Exact QR code to look up. When provided, the other filters below are ignored.")] string? qrCode,
+            [Description("Free-text search matched against Production Order number and ID number. Ignored when qrCode is provided.")] string? searchQuery,
+            [Description("Drawing number to filter by. Ignored when qrCode is provided.")] string? drawingNumber,
+            [Description("Production Series names to filter by. Ignored when qrCode is provided.")] List<string>? prodSeries,
+            [Description("Status to filter by: 'Partial' or 'Pending'. Ignored when qrCode is provided.")] string? status)
+        {
+            var results = await _precheckService.AvailableComponentDetailsService(new AvailableComponentFilterDto
+            {
+                QrCode = qrCode ?? string.Empty,
+                SearchQuery = searchQuery,
+                DrawingNumber = drawingNumber,
+                ProdSeries = prodSeries,
+                Status = status
+            });
+
+            return results.Select(r => new AvailableComponentByFilterSummaryDto
+            {
+                IdNumber = r.IdNumber,
+                Quantity = r.Quantity,
+                DrawingNumber = r.DrawingNumber,
+                ProductionSeries = r.ProductionSeries,
+                Nomenclature = r.Nomenclature,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                PrecheckStatus = r.PrecheckStatus
+            }).ToList();
+        }
+
+        [Description("Get the Precheck BOM/checklist template for a given assembly number - the list of components " +
+            "required for that assembly's verification.")]
+        public Task<List<PrecheckTemplateResponseDto>> GetPrecheckAssemblyTemplateAsync(
+            [Description("The exact assembly number.")] string assemblyNumber)
+            => _precheckService.GetPrecheckAssemblyTemplate(assemblyNumber);
+
         [Description("Get components available for precheck for a given drawing number ID. If you only have a " +
             "drawing number string, call get_drawing_numbers first to resolve its ID.")]
         public async Task<List<AvailableComponentSummaryDto>> GetAvailableComponentsAsync(
@@ -267,6 +378,82 @@ namespace Godrej.Precheck.Host.Agents
                 ProductionOrderNumber = r.ProductionOrderNumber,
                 Status = r.Status
             }).ToList();
+        }
+
+        // ---- Downstream Traceability: Stored In / Material Requisition / Swapping ----
+
+        [Description("Get components that have been 'stored in' - i.e. verified, real-time stock on hand after passing Precheck - " +
+            "optionally filtered by the date they were stored in and/or drawing number.")]
+        public async Task<List<QrCodeSummaryDto>> GetStoredInComponentsAsync(
+            [Description("Filter to components stored in on this exact date. Omit to get all dates.")] DateTime? storeInDate,
+            [Description("Drawing number to filter by. Omit if not specified.")] string? drawingNumber)
+        {
+            var results = await _qrCodeService.GetComponentStoreInByDateService(new StoredInQrCodeRequest
+            {
+                StoreInDate = storeInDate,
+                DrawingNumber = drawingNumber
+            });
+
+            return results.Select(r => new QrCodeSummaryDto
+            {
+                QrCodeNumber = r.QrCodeNumber,
+                QrCodeStatus = r.QrCodeStatus,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                RackLocation = r.RackLocation,
+                IdNumber = r.IdNumber,
+                ExpiryDate = r.ExpiryDate
+            }).ToList();
+        }
+
+        [Description("List Material Requisitions - components issued out of verified stock into production - optionally " +
+            "filtered by status. To see the exact status values in use, call this once with no status filter first.")]
+        public async Task<List<MaterialRequisitionSummaryDto>> GetMaterialRequisitionsAsync(
+            [Description("Exact status text to filter by (e.g. as seen on an unfiltered call's Status field). Omit to get all requisitions.")] string? status)
+        {
+            var results = string.IsNullOrWhiteSpace(status)
+                ? await _materialRequisitionService.GetMaterialRequisitions()
+                : await _materialRequisitionService.GetMaterialRequisitionsByStatus(status, 0);
+
+            return results.Select(r => new MaterialRequisitionSummaryDto
+            {
+                RequestNumber = r.RequestNumber,
+                Status = r.Status,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                DrawingNumber = r.DrawingNumber,
+                LnItemCode = r.LnItemCode,
+                Quantity = r.Quantity,
+                Unit = r.Unit,
+                IsRejected = r.IsRejected,
+                RequestOwner = r.RequestOwner,
+                CreatedDate = r.CreatedDate
+            }).ToList();
+        }
+
+        [Description("List component swapping records - where one physical component (by ID number) was swapped for " +
+            "another against a drawing number and/or Production Order.")]
+        public async Task<List<SwappingDetailSummaryDto>> GetSwappingDetailsAsync()
+        {
+            var results = await _materialRequisitionService.GetSwappingDetails();
+            return results.Select(r => new SwappingDetailSummaryDto
+            {
+                SwappedDrawingNumber = r.SwappedDrawingNumber,
+                FromSwappedIdNumber = r.FromSwappedIdNumber,
+                ToSwappedIdNumber = r.ToSwappedIdNumber,
+                SwappedFromPONumber = r.SwappedFromPONumber,
+                SwappedToPONumber = r.SwappedToPONumber,
+                CreatedDate = r.CreatedDate
+            }).ToList();
+        }
+
+        [Description("Get available QR codes (verified stock not yet consumed), grouped by drawing number and LN item " +
+            "code with total and remaining quantities, optionally filtered by a search term and/or Production Series.")]
+        public async Task<GetAvailableQrPagedResponse> GetAvailableQrCodesAsync(
+            [Description("Free-text search matched against LN item code/drawing number. Omit if not specified.")] string? searchQuery,
+            [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries)
+        {
+            return await _qrCodeService.GetAvailableQrPagedService(
+                new GetAvailableQrRequest { SearchQuery = searchQuery, ProdSeries = prodSeries },
+                pageNumber: 1, pageSize: 200);
         }
     }
 }
