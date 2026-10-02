@@ -68,7 +68,10 @@ namespace Godrej.Precheck.Host.Agents
             }).ToList();
         }
 
-        [Description("Get full details for a single Production Order by its exact Production Order number.")]
+        [Description("Get the Production Order MASTER record (overall status, quantity, drawing, dates) by its exact " +
+            "Production Order number. This does NOT include per-unit Precheck verification records (scans, rejections, " +
+            "remarks) - for 'precheck details'/'precheck records' of a PO, use search_precheck_records or " +
+            "get_precheck_by_po_series_id instead.")]
         public Task<Godrej.Precheck.Models.DTOs.ProductionOrder.ProductionOrderMasterDto?> GetProductionOrderDetailsAsync(
             [Description("The exact Production Order number.")] string productionOrderNumber)
             => _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
@@ -274,9 +277,9 @@ namespace Godrej.Precheck.Host.Agents
             MsnNumber = r.MsnNumber
         };
 
-        [Description("Get precheck verification details for a specific unit, identified by Production Order number, " +
-            "Production Series name, and ID number. This is the authoritative per-unit precheck status/detail lookup - " +
-            "use it whenever the user asks about precheck status for a specific PO + series + ID number combination.")]
+        [Description("Get precheck verification details for ONE specific unit, identified by Production Order number, " +
+            "Production Series name, AND ID number (all three required). Only use this when the user has given all " +
+            "three - if they've only given a PO number, use search_precheck_records instead.")]
         public async Task<List<PrecheckRecordSummaryDto>> GetPrecheckByPoSeriesIdAsync(
             [Description("The exact Production Order number.")] string productionOrderNumber,
             [Description("The Production Series name (e.g. 'H'). Resolved internally to its ID - pass the name, not a number.")] string productionSeries,
@@ -298,8 +301,11 @@ namespace Godrej.Precheck.Host.Agents
             return results.Select(ToSummary).ToList();
         }
 
-        [Description("Search/list Precheck verification records, optionally filtered by free-text search (PO number/drawing " +
-            "number/LN item code), Production Series, status, and/or a date range.")]
+        [Description("Search/list Precheck verification records (scan results, PrecheckStatus, rejections, remarks per " +
+            "unit) - optionally filtered by free-text search (PO number/drawing number/LN item code), Production Series, " +
+            "status, and/or a date range. Use this whenever the user asks for 'precheck details'/'precheck records' for " +
+            "a Production Order and has NOT given a specific Production Series + ID number - pass the PO number as " +
+            "searchQuery to get all precheck records for that PO.")]
         public async Task<List<PrecheckRecordSummaryDto>> SearchPrecheckRecordsAsync(
             [Description("Free-text search term matched against PO number, drawing number, LN item code. Omit if not specified.")] string? searchQuery,
             [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries,
