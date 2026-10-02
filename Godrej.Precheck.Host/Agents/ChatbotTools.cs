@@ -156,11 +156,22 @@ namespace Godrej.Precheck.Host.Agents
             }).ToList();
         }
 
-        [Description("List/filter IR numbers by a free-text search query.")]
+        // get_ir_numbers/get_msn_numbers used to wrap ICommonService.IRNumberService/MSNNumberService,
+        // but that underlying query requires an exact departmentid match with no null-guard - since
+        // this tool never has a department ID to supply, it always returned zero rows. Replaced with
+        // the "ByDrawingNumber" repository methods instead, which null-guard every filter (drawing
+        // number, production series) and don't have that department requirement.
+        [Description("List/filter IR numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
+            "At least one of drawingNumber or productionSeries should be provided.")]
         public async Task<List<IRNumberSummaryDto>> GetIrNumbersAsync(
-            [Description("Free-text search term to match IR numbers against. Omit if not specified.")] string? search)
+            [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
+            [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
         {
-            var results = await _commonService.IRNumberService(new GetAllIRNumberRequestDto { query = search });
+            var results = await _commonService.IRNumberByDrawingNumberService(new GetIRNumberByDrawingNumberRequest
+            {
+                DrawingNumber = drawingNumber,
+                Productionseries = productionSeries
+            });
             return results.Select(r => new IRNumberSummaryDto
             {
                 IrNumber = r.IrNumber,
@@ -172,43 +183,17 @@ namespace Godrej.Precheck.Host.Agents
             }).ToList();
         }
 
-        [Description("List/filter MSN numbers by a free-text search query.")]
+        [Description("List/filter MSN numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
+            "At least one of drawingNumber or productionSeries should be provided.")]
         public async Task<List<MSNNumberSummaryDto>> GetMsnNumbersAsync(
-            [Description("Free-text search term to match MSN numbers against. Omit if not specified.")] string? search)
+            [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
+            [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
         {
-            var results = await _commonService.MSNNumberService(new GetAllMSNNumberRequestDto { query = search });
-            return results.Select(r => new MSNNumberSummaryDto
+            var results = await _commonService.MSNNumberByDrawingNumberService(new GetMSNNumberByDrawingNumberRequest
             {
-                MsnNumber = r.MsnNumber,
-                ProductionOrderNumber = r.ProductionOrderNumber,
-                DrawingNumberIdName = r.DrawingNumberIdName,
-                Stage = r.Stage,
-                Quantity = r.Quantity,
-                CreatedDate = r.CreatedDate
-            }).ToList();
-        }
-
-        [Description("Get IR numbers for a specific drawing number.")]
-        public async Task<List<IRNumberSummaryDto>> GetIrNumbersByDrawingAsync(
-            [Description("The drawing number to look up IR numbers for.")] string drawingNumber)
-        {
-            var results = await _commonService.IRNumberByDrawingNumberService(new GetIRNumberByDrawingNumberRequest { DrawingNumber = drawingNumber });
-            return results.Select(r => new IRNumberSummaryDto
-            {
-                IrNumber = r.IrNumber,
-                ProductionOrderNumber = r.ProductionOrderNumber,
-                DrawingNumberIdName = r.DrawingNumberIdName,
-                Stage = r.Stage,
-                Quantity = r.Quantity,
-                CreatedDate = r.CreatedDate
-            }).ToList();
-        }
-
-        [Description("Get MSN numbers for a specific drawing number.")]
-        public async Task<List<MSNNumberSummaryDto>> GetMsnNumbersByDrawingAsync(
-            [Description("The drawing number to look up MSN numbers for.")] string drawingNumber)
-        {
-            var results = await _commonService.MSNNumberByDrawingNumberService(new GetMSNNumberByDrawingNumberRequest { DrawingNumber = drawingNumber });
+                DrawingNumber = drawingNumber,
+                Productionseries = productionSeries
+            });
             return results.Select(r => new MSNNumberSummaryDto
             {
                 MsnNumber = r.MsnNumber,
@@ -222,14 +207,12 @@ namespace Godrej.Precheck.Host.Agents
 
         // ---- Store domain: Precheck ----
 
-        [Description("Get the Precheck status code for a Production Order. Returns a status code: " +
-            "1=Pending, 2=Partial, 3=Completed, 4=Pending-Planner, or null if not found.")]
-        public Task<int?> GetPrecheckStatusAsync(
-            [Description("The exact Production Order number.")] string productionOrderNumber)
-            => _precheckService.GetPrecheckStatusDetailsService(new ViewPreCheckRequestDto
-            {
-                ProductionOrderNumber = productionOrderNumber
-            });
+        // get_precheck_status (removed) used to wrap IPrecheckService.GetPrecheckStatusDetailsService,
+        // but that query ignores ProductionOrderNumber entirely - it actually filters on
+        // DrawingNumberId + ProdSeriesId + IdNumbers (a specific unit, not a PO), none of which this
+        // tool had, so it always returned null. get_production_order_status/get_production_order_details
+        // already return Status/PrecheckStatusName for a PO, making a separate tool for this redundant
+        // even once fixed, so it was removed rather than patched.
 
         [Description("List Production Orders with pending prechecks, optionally filtered by PO number or LN item code.")]
         public async Task<List<PendingPrecheckSummaryDto>> GetPendingPrechecksAsync(
@@ -256,14 +239,19 @@ namespace Godrej.Precheck.Host.Agents
             [Description("The drawing number ID to look up consumed components for.")] int drawingNumberId)
             => _precheckService.GetConsumedInComponentsAsync(drawingNumberId);
 
-        [Description("Get components available for precheck for a given production series.")]
+        // The underlying query (GET_AVAILABLE_COMPONENT_ORDER) filters only on drawingnumberid - it
+        // does not use ProdSeriesId at all, so making ProdSeriesId the required parameter (as this
+        // tool originally did) meant the real filter was always left null and the result was always
+        // empty. drawingNumberId is now the required parameter; since that's an internal numeric ID
+        // a chat user won't know, the description steers the model to resolve it via
+        // get_drawing_numbers first.
+        [Description("Get components available for precheck for a given drawing number ID. If you only have a " +
+            "drawing number string, call get_drawing_numbers first to resolve its ID.")]
         public async Task<List<AvailableComponentSummaryDto>> GetAvailableComponentsAsync(
-            [Description("The production series ID to look up available components for.")] int prodSeriesId,
-            [Description("Drawing number ID to filter by. Omit if not specified.")] int? drawingNumberId)
+            [Description("The internal drawing number ID (from get_drawing_numbers' 'id' field) to look up available components for.")] int drawingNumberId)
         {
             var results = await _precheckService.GetAvailableComponentService(new GetAvailableComponentsRequest
             {
-                ProdSeriesId = prodSeriesId,
                 DrawingNumberId = drawingNumberId
             });
 
