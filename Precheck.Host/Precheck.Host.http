@@ -1,0 +1,6 @@
+@Precheck.Host_HostAddress = http://localhost:5027
+
+GET {{Precheck.Host_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

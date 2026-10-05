@@ -11,14 +11,14 @@ WORKDIR /src
 COPY . .
 
 # Build the project
-WORKDIR "/src/Godrej.Precheck.Host"
-RUN dotnet build "Godrej.Precheck.Host.csproj" -c $BUILD_CONFIGURATION -o /app/build
+WORKDIR "/src/Precheck.Host"
+RUN dotnet build "Precheck.Host.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "Godrej.Precheck.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "Precheck.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Godrej.Precheck.Host.dll"]
+ENTRYPOINT ["dotnet", "Precheck.Host.dll"]

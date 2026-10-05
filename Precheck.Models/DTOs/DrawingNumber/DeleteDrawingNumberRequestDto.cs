@@ -1,0 +1,12 @@
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+namespace Precheck.Models.DTOs.DrawingNumber
+{
+    public class DeleteDrawingNumberRequestDto
+    {
+        [Required] public string DrawingNumber { get; set; }
+        [Required] public string LnItemCode { get; set; }
+        public List<string>? AssemblyNumber { get; set; }
+    }
+}
