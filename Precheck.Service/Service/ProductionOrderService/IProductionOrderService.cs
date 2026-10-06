@@ -1,0 +1,25 @@
+using System.IO;
+using System.Threading.Tasks;
+using Precheck.Models.DTOs.ProductionOrder;
+
+namespace Precheck.Service.Service.ProductionOrderService
+{
+    public interface IProductionOrderService
+    {
+        Task<ProductionOrderUploadResultDto> UploadExcelAsync(Stream fileStream, int createdBy);
+        Task<bool> UpdateProductionOrderAsync(UpdateProductionOrderDto dto, int updatedBy);
+        Task<ProductionOrderMasterDto?> GetByProductionOrderNumberAsync(string productionOrderNumber);
+        Task<List<ProductionOrderMasterDto>> GetAllProductionOrdersAsync(int roleId = 0);
+        Task<List<ProductionOrderMasterDto>> GetAllProductionOrdersAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, int? precheckStatus, string? poNumber, string? lnItemCode, int roleId = 0, string? drawingNumber = null);
+        Task<ProductionOrderMasterPagedResponse> GetAllProductionOrdersPagedAsync(int roleId, int pageNumber, int pageSize);
+        Task<ProductionOrderMasterPagedResponse> GetAllProductionOrdersPagedAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, List<int>? precheckStatus, string? poNumber, string? lnItemCode, int roleId, string? drawingNumber, string? searchQuery, List<string>? productionSeries, int pageNumber, int pageSize);
+        Task<ProductionOrderDetailsDto> GetProductionOrderDetailsAsync(string productionOrderNumber);
+        Task<byte[]> DownloadTemplateAsync();
+        Task<List<ProductionOrderMasterDto>> GetAllPONumbersAsync(string? search = null);
+        Task<ProductionOrderCountsDto> GetProductionOrderCountsAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, string? poNumber, string? lnItemCode, int roleId, string? drawingNumber, string? searchQuery, List<string>? productionSeries);
+        Task<byte[]> ExportProductionOrdersAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, List<int>? precheckStatus, string? poNumber, string? lnItemCode, int roleId, string? drawingNumber, string? searchQuery, List<string>? productionSeries, List<string>? selectedColumns);
+        Task<MinStatusUploadResultDto> UploadMinStatusExcelAsync(Stream fileStream, int updatedBy);
+        Task<bool> DeleteProductionOrderAsync(DeleteProductionOrderRequestDto request);
+
+    }
+}

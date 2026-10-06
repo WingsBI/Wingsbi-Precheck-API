@@ -1,2 +1,2 @@
-# Godrej-Precheck-API
-This is for the Godrej Precheck Desktop API and SQL scripts
+# Precheck-API
+This is for the Precheck Desktop API and SQL scripts
