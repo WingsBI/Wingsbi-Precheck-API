@@ -57,6 +57,8 @@ namespace Precheck.Host.Controllers
             "non-conforming one; if the user wants to reject/replace a component, tell them that capability isn't " +
             "available yet rather than attempting it.";
 
+        private const int PreviousConversationsPageSize = 5;
+
         private readonly ILogger<ChatbotController> _logger;
         private readonly ChatbotTools _tools;
         private readonly IChatbotService _chatbotService;
@@ -94,14 +96,14 @@ namespace Precheck.Host.Controllers
                 _logger.LogInformation("Request for ChatbotController:Ask: {Message}", request.Message);
 
                 var agent = BuildAgent();
-                var (sessionId, session) = await LoadOrCreateSessionAsync(agent, request, userId);
+                var (sessionId, session, messages) = await LoadOrCreateSessionAsync(agent, request, userId);
                 if (session == null)
                 {
-                    _logger.LogWarning("User {UserId} attempted to access ChatSession {SessionId} they do not own", userId, sessionId);
+                    _logger.LogWarning("User {UserId} attempted to access chat session {SessionId} they do not own", userId, sessionId);
                     return Forbid();
                 }
 
-                var response = await agent.RunAsync(request.Message, session);
+                var response = await agent.RunAsync(messages, session);
 
                 var toolCalled = response.Messages
                     .SelectMany(m => m.Contents)
@@ -115,11 +117,7 @@ namespace Precheck.Host.Controllers
                     .Select(c => c.Result)
                     .FirstOrDefault();
 
-                var serializedState = await agent.SerializeSessionAsync(session);
-                await _chatbotService.UpdateSessionStateAsync(sessionId, serializedState.GetRawText());
-
-                await _chatbotService.AddMessageAsync(sessionId, "user", request.Message, null);
-                await _chatbotService.AddMessageAsync(sessionId, "assistant", response.Text, toolCalled);
+                await _chatbotService.AddHistoryAsync(userId, sessionId, request.Message, response.Text);
 
                 var suggestedQuestions = await GetSuggestedQuestionsAsync(roleId, request.Message, response.Text);
 
@@ -165,10 +163,10 @@ namespace Precheck.Host.Controllers
             _logger.LogInformation("Request for ChatbotController:AskStream: {Message}", request.Message);
 
             var agent = BuildAgent();
-            var (sessionId, session) = await LoadOrCreateSessionAsync(agent, request, userId);
+            var (sessionId, session, messages) = await LoadOrCreateSessionAsync(agent, request, userId);
             if (session == null)
             {
-                _logger.LogWarning("User {UserId} attempted to access ChatSession {SessionId} they do not own", userId, sessionId);
+                _logger.LogWarning("User {UserId} attempted to access chat session {SessionId} they do not own", userId, sessionId);
                 Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
             }
@@ -180,7 +178,7 @@ namespace Precheck.Host.Controllers
             var updates = new List<AgentResponseUpdate>();
             try
             {
-                await foreach (var update in agent.RunStreamingAsync(request.Message, session, cancellationToken: HttpContext.RequestAborted))
+                await foreach (var update in agent.RunStreamingAsync(messages, session, cancellationToken: HttpContext.RequestAborted))
                 {
                     updates.Add(update);
                     if (!string.IsNullOrEmpty(update.Text))
@@ -205,11 +203,7 @@ namespace Precheck.Host.Controllers
                     .Select(c => c.Result)
                     .FirstOrDefault();
 
-                var serializedState = await agent.SerializeSessionAsync(session);
-                await _chatbotService.UpdateSessionStateAsync(sessionId, serializedState.GetRawText());
-
-                await _chatbotService.AddMessageAsync(sessionId, "user", request.Message, null);
-                await _chatbotService.AddMessageAsync(sessionId, "assistant", response.Text, toolCalled);
+                await _chatbotService.AddHistoryAsync(userId, sessionId, request.Message, response.Text);
 
                 var suggestedQuestions = await GetSuggestedQuestionsAsync(roleId, request.Message, response.Text);
 
@@ -217,6 +211,7 @@ namespace Precheck.Host.Controllers
                 {
                     sessionId,
                     toolCalled,
+                    createdDate = DateTime.UtcNow,
                     data,
                     suggestedQuestions,
                     inputTokens = response.Usage?.InputTokenCount,
@@ -241,29 +236,71 @@ namespace Precheck.Host.Controllers
             }
         }
 
-        private async Task<(int SessionId, AgentSession? Session)> LoadOrCreateSessionAsync(AIAgent agent, ChatRequestDto request, int userId)
+        [HttpGet("PreviousConversations")]
+        [Authorize]
+        [ProducesResponseType(typeof(PreviousConversationsResponseDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> PreviousConversations([FromQuery] int? cursor, [FromQuery] int pageSize = PreviousConversationsPageSize)
         {
+            try
+            {
+                var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
+                pageSize = Math.Clamp(pageSize, 1, 50);
+
+                // Opening a new chat: every existing session of this user is "previous".
+                var result = await _chatbotService.GetPreviousConversationsAsync(userId, null, cursor, pageSize);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception Error for ChatbotController:PreviousConversations");
+                return StatusCode(500, new { message = "Unable to load previous conversations." });
+            }
+        }
+
+        private async Task<(int SessionId, AgentSession? Session, List<Microsoft.Extensions.AI.ChatMessage> Messages)> LoadOrCreateSessionAsync(AIAgent agent, ChatRequestDto request, int userId)
+        {
+            var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
+            int sessionId;
+
             if (request.SessionId == null)
             {
-                var title = request.Message.Length > 200 ? request.Message[..200] : request.Message;
-                var newSessionId = await _chatbotService.CreateSessionAsync(userId, title);
-                var newSession = await agent.CreateSessionAsync();
-                return (newSessionId, newSession);
+                sessionId = await _chatbotService.GetNewSessionIdAsync();
             }
-
-            var sessionId = request.SessionId.Value;
-            var belongsToUser = await _chatbotService.SessionBelongsToUserAsync(sessionId, userId);
-            if (!belongsToUser)
+            else
             {
-                return (sessionId, null);
+                sessionId = request.SessionId.Value;
+                var belongsToUser = await _chatbotService.SessionBelongsToUserAsync(sessionId, userId);
+                if (!belongsToUser)
+                {
+                    return (sessionId, null, messages);
+                }
             }
 
-            var existingState = await _chatbotService.GetSessionStateAsync(sessionId);
-            var session = existingState == null
-                ? await agent.CreateSessionAsync()
-                : await agent.DeserializeSessionAsync(JsonDocument.Parse(existingState).RootElement);
+            // "Continue where I left off": the last few exchanges of the user's previous session are
+            // given to the LLM as context (never saved against this session). Resolved relative to
+            // this session's id so it stays the same on every turn of the new chat.
+            var previous = await _chatbotService.GetPreviousConversationsAsync(userId, sessionId, null, PreviousConversationsPageSize);
+            foreach (var h in previous.Messages)
+            {
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, h.Request));
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.Assistant, h.Response));
+            }
 
-            return (sessionId, session);
+            if (request.SessionId != null)
+            {
+
+                // Rebuild the conversation context from the stored request/response pairs.
+                var history = await _chatbotService.GetHistoryAsync(sessionId);
+                foreach (var h in history)
+                {
+                    messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, h.Request));
+                    messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.Assistant, h.Response));
+                }
+            }
+
+            messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, request.Message));
+            var session = await agent.CreateSessionAsync();
+            return (sessionId, session, messages);
         }
 
         private ChatClient BuildChatClient()

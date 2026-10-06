@@ -7,6 +7,9 @@ namespace Precheck.Models.DTOs.Chatbot
         public string? PartNumber { get; set; }
         public string? ItemCode { get; set; }
         public string? ProductionSeries { get; set; }
+        public string? IrNumber { get; set; }
+        public string? MsnNumber { get; set; }
+        public string? Unit { get; set; }
         public string? ComponentType { get; set; }
         public string? IdNumbers { get; set; }
         public decimal? Quantity { get; set; }

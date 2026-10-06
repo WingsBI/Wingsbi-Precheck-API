@@ -16,20 +16,15 @@ namespace Precheck.Repository.Repository.ChatbotRepository
             _db = db;
         }
 
-        public async Task<int> CreateSessionAsync(int userId, string? title)
+        public async Task<int> GetNewSessionIdAsync()
         {
-            _logger.LogInformation("Request for ChatbotRepository:CreateSessionAsync, UserId: {UserId}", userId);
             try
             {
-                var sessionId = await _db.ExecuteScalar<int>(
-                    ChatbotQueries.INSERT_CHAT_SESSION,
-                    new { UserId = userId, Title = title });
-
-                return sessionId;
+                return await _db.ExecuteScalar<int>(ChatbotQueries.GET_NEXT_SESSION_ID, new { });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating chat session for UserId: {UserId}", userId);
+                _logger.LogError(ex, "Error generating new chat session id");
                 throw;
             }
         }
@@ -51,64 +46,51 @@ namespace Precheck.Repository.Repository.ChatbotRepository
             }
         }
 
-        public async Task<string?> GetSessionStateAsync(int sessionId)
-        {
-            try
-            {
-                return await _db.GetSingle<string?>(
-                    ChatbotQueries.GET_SESSION_STATE,
-                    new { SessionId = sessionId });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching session state for SessionId: {SessionId}", sessionId);
-                throw;
-            }
-        }
-
-        public async Task UpdateSessionStateAsync(int sessionId, string sessionState)
+        public async Task AddHistoryAsync(int userId, int sessionId, string request, string response)
         {
             try
             {
                 await _db.Execute(
-                    ChatbotQueries.UPDATE_SESSION_STATE,
-                    new { SessionId = sessionId, SessionState = sessionState });
+                    ChatbotQueries.INSERT_CHAT_HISTORY,
+                    new { UserId = userId, SessionId = sessionId, Request = request, Response = response });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating session state for SessionId: {SessionId}", sessionId);
+                _logger.LogError(ex, "Error adding chat history for SessionId: {SessionId}", sessionId);
                 throw;
             }
         }
 
-        public async Task AddMessageAsync(int sessionId, string role, string content, string? toolCalled)
+        public async Task<List<ChatSessionRecord>> GetHistoryAsync(int sessionId)
         {
             try
             {
-                await _db.Execute(
-                    ChatbotQueries.INSERT_CHAT_MESSAGE,
-                    new { SessionId = sessionId, Role = role, Content = content, ToolCalled = toolCalled });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding chat message for SessionId: {SessionId}", sessionId);
-                throw;
-            }
-        }
-
-        public async Task<List<ChatMessageRecord>> GetMessagesAsync(int sessionId)
-        {
-            try
-            {
-                var results = await _db.GetAll<ChatMessageRecord>(
-                    ChatbotQueries.GET_MESSAGES_BY_SESSION,
+                var results = await _db.GetAll<ChatSessionRecord>(
+                    ChatbotQueries.GET_HISTORY_BY_SESSION,
                     new { SessionId = sessionId });
 
                 return results.ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching chat messages for SessionId: {SessionId}", sessionId);
+                _logger.LogError(ex, "Error fetching chat history for SessionId: {SessionId}", sessionId);
+                throw;
+            }
+        }
+
+        public async Task<List<ChatSessionRecord>> GetPreviousSessionHistoryAsync(int userId, int beforeSessionId, int? cursor, int pageSize)
+        {
+            try
+            {
+                var results = await _db.GetAll<ChatSessionRecord>(
+                    ChatbotQueries.GET_PREVIOUS_SESSION_HISTORY,
+                    new { UserId = userId, BeforeSessionId = beforeSessionId, Cursor = cursor, PageSize = pageSize });
+
+                return results.ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching previous session history for UserId: {UserId}", userId);
                 throw;
             }
         }

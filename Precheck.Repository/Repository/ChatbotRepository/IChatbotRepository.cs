@@ -4,11 +4,10 @@ namespace Precheck.Repository.Repository.ChatbotRepository
 {
     public interface IChatbotRepository
     {
-        Task<int> CreateSessionAsync(int userId, string? title);
+        Task<int> GetNewSessionIdAsync();
         Task<bool> SessionBelongsToUserAsync(int sessionId, int userId);
-        Task<string?> GetSessionStateAsync(int sessionId);
-        Task UpdateSessionStateAsync(int sessionId, string sessionState);
-        Task AddMessageAsync(int sessionId, string role, string content, string? toolCalled);
-        Task<List<ChatMessageRecord>> GetMessagesAsync(int sessionId);
+        Task AddHistoryAsync(int userId, int sessionId, string request, string response);
+        Task<List<ChatSessionRecord>> GetHistoryAsync(int sessionId);
+        Task<List<ChatSessionRecord>> GetPreviousSessionHistoryAsync(int userId, int beforeSessionId, int? cursor, int pageSize);
     }
 }

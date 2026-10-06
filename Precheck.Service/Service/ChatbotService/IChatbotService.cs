@@ -1,14 +1,14 @@
 using Precheck.Models.DataModel.Chatbot;
+using Precheck.Models.DTOs.Chatbot;
 
 namespace Precheck.Service.Service.ChatbotService
 {
     public interface IChatbotService
     {
-        Task<int> CreateSessionAsync(int userId, string? title);
+        Task<int> GetNewSessionIdAsync();
         Task<bool> SessionBelongsToUserAsync(int sessionId, int userId);
-        Task<string?> GetSessionStateAsync(int sessionId);
-        Task UpdateSessionStateAsync(int sessionId, string sessionState);
-        Task AddMessageAsync(int sessionId, string role, string content, string? toolCalled);
-        Task<List<ChatMessageRecord>> GetMessagesAsync(int sessionId);
+        Task AddHistoryAsync(int userId, int sessionId, string request, string response);
+        Task<List<ChatSessionRecord>> GetHistoryAsync(int sessionId);
+        Task<PreviousConversationsResponseDto> GetPreviousConversationsAsync(int userId, int? currentSessionId, int? cursor, int pageSize);
     }
 }

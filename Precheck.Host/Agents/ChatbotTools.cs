@@ -931,7 +931,11 @@ namespace Precheck.Host.Agents
             "tool will tell you the exact valid range to offer the user, rather than giving arbitrary examples. " +
             "The result distinguishes GeneratedQrCodeNumbers (newly created) from AlreadyExistingQrCodeNumbers (that " +
             "ID already had a QR code, so nothing new was made for it) - report both clearly, never claim an " +
-            "already-existing QR code was newly generated.")]
+            "already-existing QR code was newly generated. An IR number is REQUIRED and gets linked to the QR code(s): " +
+            "if irNumber is omitted the tool returns the IR numbers available for this Production Order's drawing/series " +
+            "- show them and ask the user which one to use; never guess or pick one for them. An MSN number is ALSO " +
+            "REQUIRED and linked the same way: if msnNumber is omitted the tool returns the available MSN numbers - ask " +
+            "the user to pick one, or to answer 'NA' if no MSN applies.")]
         public async Task<CreateQrCodeResponseDto> CreateQrCodeAsync(
             [Description("The exact Production Order number.")] string productionOrderNumber,
             [Description("Component Type: ID, FIM, SI, or BATCH.")] string componentType,
@@ -941,6 +945,10 @@ namespace Precheck.Host.Agents
             [Description("Build number. Omit if not specified.")] string? buildNumber,
             [Description("Operation number. Omit if not specified.")] string? operationNumber,
             [Description("Remark/notes. Omit if not specified.")] string? remark,
+            [Description("The exact IR number to link to the QR code(s), as chosen by the user. Required - omit only to " +
+                "get the list of available IR numbers.")] string? irNumber,
+            [Description("The exact MSN number to link, as chosen by the user, or 'NA' if the user says none applies. " +
+                "Required - omit only to get the list of available MSN numbers.")] string? msnNumber,
             [Description("Set true ONLY after the user has explicitly confirmed the previewed details.")] bool confirmed)
         {
             var po = await _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
@@ -989,12 +997,67 @@ namespace Precheck.Host.Agents
                 }
             }
 
+            // IR number is mandatory on the QR Code form and is stored against every generated QR code.
+            var availableIrNumbers = (await _commonService.IRNumberByDrawingNumberService(new GetIRNumberByDrawingNumberRequest
+            {
+                DrawingNumber = po.DrawingNumber,
+                Productionseries = po.ProductionSeries
+            })).Where(r => r.Id != null && !string.IsNullOrWhiteSpace(r.IrNumber)).ToList();
+
+            if (string.IsNullOrWhiteSpace(irNumber))
+            {
+                var listing = availableIrNumbers.Count > 0
+                    ? $" Available IR numbers: {string.Join(", ", availableIrNumbers.Select(r => r.IrNumber).Distinct())}."
+                    : " No IR numbers exist yet for this drawing/series - create one first.";
+                return new CreateQrCodeResponseDto { Message = $"An IR number is required to generate a QR code - ask the user which one to link.{listing}" };
+            }
+
+            var selectedIr = availableIrNumbers.FirstOrDefault(r => string.Equals(r.IrNumber, irNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (selectedIr == null)
+            {
+                var listing = availableIrNumbers.Count > 0
+                    ? $" Available IR numbers: {string.Join(", ", availableIrNumbers.Select(r => r.IrNumber).Distinct())}."
+                    : string.Empty;
+                return new CreateQrCodeResponseDto { Message = $"IR number '{irNumber}' was not found for drawing '{po.DrawingNumber}' / series '{po.ProductionSeries}'.{listing}" };
+            }
+
+            // MSN number is also mandatory on the form, but "NA" is a valid answer (nothing is linked).
+            var availableMsnNumbers = (await _commonService.MSNNumberByDrawingNumberService(new GetMSNNumberByDrawingNumberRequest
+            {
+                DrawingNumber = po.DrawingNumber,
+                Productionseries = po.ProductionSeries
+            })).Where(r => r.Id != null && !string.IsNullOrWhiteSpace(r.MsnNumber)).ToList();
+
+            if (string.IsNullOrWhiteSpace(msnNumber))
+            {
+                var listing = availableMsnNumbers.Count > 0
+                    ? $" Available MSN numbers: {string.Join(", ", availableMsnNumbers.Select(r => r.MsnNumber).Distinct())}, or 'NA'."
+                    : " No MSN numbers exist for this drawing/series - the user can answer 'NA'.";
+                return new CreateQrCodeResponseDto { Message = $"An MSN number is required to generate a QR code - ask the user which one to link.{listing}" };
+            }
+
+            MSNNumbers? selectedMsn = null;
+            if (!string.Equals(msnNumber.Trim(), "NA", StringComparison.OrdinalIgnoreCase))
+            {
+                selectedMsn = availableMsnNumbers.FirstOrDefault(r => string.Equals(r.MsnNumber, msnNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (selectedMsn == null)
+                {
+                    var listing = availableMsnNumbers.Count > 0
+                        ? $" Available MSN numbers: {string.Join(", ", availableMsnNumbers.Select(r => r.MsnNumber).Distinct())}, or 'NA'."
+                        : " Only 'NA' is possible.";
+                    return new CreateQrCodeResponseDto { Message = $"MSN number '{msnNumber}' was not found for drawing '{po.DrawingNumber}' / series '{po.ProductionSeries}'.{listing}" };
+                }
+            }
+
             var preview = new CreateQrCodeResponseDto
             {
                 ProductionOrderNumber = productionOrderNumber,
                 PartNumber = po.DrawingNumber,
                 ItemCode = po.LnItemCode,
                 ProductionSeries = po.ProductionSeries,
+                IrNumber = selectedIr.IrNumber,
+                MsnNumber = selectedMsn?.MsnNumber ?? "NA",
+                Unit = po.UnitName,
                 ComponentType = componentTypeRecord.ComponentType,
                 IdNumbers = isIdType ? idNumbers : null,
                 Quantity = isIdType ? null : quantity,
@@ -1017,6 +1080,9 @@ namespace Precheck.Host.Agents
                     ProductionSeriesId = po.ProdSeriesId.Value,
                     DrawingNumberId = po.DrawingNumberId.Value,
                     ComponentTypeId = componentTypeRecord.ID,
+                    IrNumberId = selectedIr.Id,
+                    MsnNumberId = selectedMsn?.Id,
+                    UnitId = po.UnitId,
                     ProductionOrderNumber = productionOrderNumber,
                     CustomIdRange = isIdType ? idNumbers : null,
                     Quantity = isIdType ? 1 : quantity!.Value,
@@ -1103,12 +1169,25 @@ namespace Precheck.Host.Agents
                 return new MakePrecheckResponseDto { Message = $"Production Series '{productionSeries}' was not found." };
             }
 
-            var assemblyDrawings = await _commonService.GetAllDrawingNumberService(new GetAllDrawingRequestDto { Search = assemblyDrawingNumber });
-            var assemblyDrawing = assemblyDrawings.FirstOrDefault(d => string.Equals(d.DrawingNumber, assemblyDrawingNumber, StringComparison.OrdinalIgnoreCase));
-            if (assemblyDrawing == null)
+            // The target assembly's project (tbl_projectdetails) is keyed by PO + series + ID number and is
+            // stored against the Production Order's OWN drawing. MakePrecheck filters on that drawing id
+            // (ConsumedInDrawingNumberID), so it must come from the PO itself - not from a name the model
+            // supplied, which can be a different/parent drawing and makes MakePrecheck fail with
+            // "Drawing ID ... is not valid" even though the same call works via the API.
+            var po = await _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
+            if (po == null || po.DrawingNumberId == null || string.IsNullOrWhiteSpace(po.DrawingNumber))
             {
-                return new MakePrecheckResponseDto { Message = $"Assembly drawing number '{assemblyDrawingNumber}' was not found." };
+                return new MakePrecheckResponseDto { Message = $"Production Order '{productionOrderNumber}' was not found or has no drawing number." };
             }
+            if (po.ProdSeriesId != series.Id)
+            {
+                return new MakePrecheckResponseDto { Message = $"Production Order '{productionOrderNumber}' belongs to Production Series '{po.ProductionSeries}', not '{productionSeries}'." };
+            }
+            if (!string.Equals(po.DrawingNumber, assemblyDrawingNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                return new MakePrecheckResponseDto { Message = $"Assembly drawing '{assemblyDrawingNumber}' does not match Production Order '{productionOrderNumber}', whose assembly drawing is '{po.DrawingNumber}'. Use '{po.DrawingNumber}' as the assembly drawing number." };
+            }
+            var assemblyDrawing = new { Id = po.DrawingNumberId.Value, DrawingNumber = po.DrawingNumber };
 
             var componentDrawings = await _commonService.GetAllDrawingNumberService(new GetAllDrawingRequestDto { Search = componentDrawingNumber });
             var componentDrawing = componentDrawings.FirstOrDefault(d => string.Equals(d.DrawingNumber, componentDrawingNumber, StringComparison.OrdinalIgnoreCase));
@@ -1124,6 +1203,43 @@ namespace Precheck.Host.Agents
                 return new MakePrecheckResponseDto { Message = $"Component Type '{componentType}' not recognized. Valid types: {string.Join(", ", validTypes.Select(t => t.ComponentType))}." };
             }
 
+            // The underlying UPDATE_PROJECT_PRECHECK_DETAIL query sets isprecheckcomplete purely from
+            // the @remainingquantity parameter we supply (= 0 -> complete) - it does NOT compute it
+            // from UpdatedQuantity itself. We must find the BOM line's current remaining quantity and
+            // compute what it becomes after this scan ourselves, or the line silently never completes
+            // (RemainingQuantity stays null -> "NULL = 0" is never true in SQL).
+            var assemblyPrecheckRows = await _precheckService.ViewPrecheckDetailsService(new ViewPreCheckRequestDto
+            {
+                ProductionOrderNumber = productionOrderNumber,
+                ProductionSeriesId = series.Id,
+                DrawingNumberId = assemblyDrawing.Id,
+                Id = assemblyIdNumber
+            });
+            var targetLine = assemblyPrecheckRows.FirstOrDefault(r => r.DrawingNumberId == componentDrawing.Id && !r.IsPrecheckComplete);
+            if (targetLine == null)
+            {
+                return new MakePrecheckResponseDto { Message = $"No pending Precheck line found for component drawing '{componentDrawing.DrawingNumber}' on this assembly (PO {productionOrderNumber}, Series {productionSeries}, Assembly ID {assemblyIdNumber}). It may already be complete, or was never set up as part of this assembly's BOM." };
+            }
+
+            // The precheck row is updated from the scanned QR's own details (drawing, unit, IR/MSN/MRIR, ID),
+            // exactly as the Excel import does - the API's UPDATE overwrites those columns, so leaving them
+            // out would blank them on the row.
+            var qrDetails = await _qrCodeService.GetQRCodeDetailsService(qrCodeNumber, null);
+            if (qrDetails == null)
+            {
+                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' was not found." };
+            }
+            if (qrDetails.DrawingNumberId != componentDrawing.Id)
+            {
+                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' is tagged for drawing '{qrDetails.DrawingNumber}', not '{componentDrawing.DrawingNumber}'. Scan a QR code that belongs to the component drawing." };
+            }
+
+            var currentRemainingQuantity = targetLine.RemainingQuantity ?? targetLine.Quantity ?? 0;
+            // Never consume more than the line still needs; a smaller scan leaves a shortfall that is carried
+            // forward to a new row after the scan (same as the Excel import).
+            var consumedQuantity = Math.Min(updatedQuantity, currentRemainingQuantity);
+            var newRemainingQuantity = currentRemainingQuantity - consumedQuantity;
+
             var preview = new MakePrecheckResponseDto
             {
                 ProductionOrderNumber = productionOrderNumber,
@@ -1133,13 +1249,16 @@ namespace Precheck.Host.Agents
                 ComponentDrawingNumber = componentDrawing.DrawingNumber,
                 QrCodeNumber = qrCodeNumber,
                 ComponentType = componentTypeRecord.ComponentType,
-                UpdatedQuantity = updatedQuantity,
-                Remarks = remarks
+                UpdatedQuantity = consumedQuantity,
+                Remarks = remarks,
+                RemainingQuantity = newRemainingQuantity
             };
 
             if (!confirmed)
             {
-                preview.Message = "Review the details above and confirm to verify (scan) this component.";
+                preview.Message = newRemainingQuantity == 0
+                    ? "Review the details above and confirm to verify (scan) this component. This will fully consume the required quantity and mark the line complete."
+                    : $"Review the details above and confirm to verify (scan) this component. {newRemainingQuantity} will remain outstanding on this line after this scan (not yet complete).";
                 return preview;
             }
 
@@ -1150,20 +1269,49 @@ namespace Precheck.Host.Agents
                 {
                     new PrecheckRequestDto
                     {
+                        // Id is the PRECHECK ROW id (tbl_projectprecheckdetails.Id) being updated - not the
+                        // assembly ID number. Passing the assembly ID made the UPDATE hit whichever row
+                        // happened to have that id, so the real line never completed.
+                        Id = targetLine.PrecheckDetailsId,
                         QrCodeNumber = qrCodeNumber,
+                        ConsumedDrawingNo = qrDetails.DrawingNumber,
                         DrawingNumberId = componentDrawing.Id,
-                        ConsumedInId = assemblyIdNumber,
-                        ConsumedInProdSeriesID = series.Id,
-                        ConsumedInDrawingNumberID = assemblyDrawing.Id,
+                        ComponentType = componentTypeRecord.ComponentType,
+                        Quantity = consumedQuantity,
+                        UpdatedQuantity = consumedQuantity,
+                        RemainingQuantity = newRemainingQuantity,
+                        Unit = qrDetails.UnitName,
+                        IrNumber = qrDetails.IrNumber,
+                        MsnNumber = qrDetails.MsnNumber,
+                        MrirNumber = qrDetails.MRIRNumber,
+                        LnItemCode = qrDetails.LnItemCode,
+                        IdNumbers = qrDetails.IdNumber,
+                        Remarks = remarks,
                         ProductionOrderNumber = productionOrderNumber,
                         ConsumeInProductionOrderNumber = productionOrderNumber,
                         AssemblyDrawingNo = assemblyDrawing.DrawingNumber,
-                        ComponentType = componentTypeRecord.ComponentType,
-                        UpdatedQuantity = updatedQuantity,
-                        Remarks = remarks,
+                        ConsumedInId = assemblyIdNumber,
+                        ConsumedInProdSeriesID = series.Id,
+                        ConsumedInDrawingNumberID = assemblyDrawing.Id,
                         CreatedBy = createdBy ?? 0
                     }
                 });
+
+                if (newRemainingQuantity > 0)
+                {
+                    // Partial scan: close this row and open a fresh one carrying the shortfall forward.
+                    await _precheckService.PrecheckForRemainingQuantityService(new RejectPrecheckRequestDto
+                    {
+                        PrecheckDetailsId = targetLine.PrecheckDetailsId,
+                        DrawingNumberId = componentDrawing.Id,
+                        ProductionSeriesId = series.Id,
+                        IdNumber = assemblyIdNumber.ToString(),
+                        ComponentType = componentTypeRecord.ComponentType,
+                        RemainingQuantity = newRemainingQuantity,
+                        DuplicateRemarks = "Auto-duplicated: remaining quantity carried forward from chatbot scan",
+                        CreatedBy = createdBy ?? 0
+                    });
+                }
 
                 var matched = results.FirstOrDefault(r => r.DrawingNumberId == componentDrawing.Id) ?? results.LastOrDefault();
                 preview.Created = true;

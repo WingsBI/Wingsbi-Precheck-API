@@ -968,7 +968,8 @@ namespace Precheck.Service.Service.PrecheckService
                 Id = request.ConsumedInId,
                 ProductionSeriesId = request.ConsumedInProdSeriesID,
                 DrawingNumberId = request.ConsumedInDrawingNumberID,
-                CreatedBy = request.CreatedBy
+                CreatedBy = request.CreatedBy,
+                ProductionOrderNumber=request.ProductionOrderNumber
             };
         }
 
