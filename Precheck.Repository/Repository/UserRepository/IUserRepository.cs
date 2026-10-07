@@ -28,7 +28,5 @@ namespace Precheck.Repository.Repository.UserRepository
         Task AddUserRoleAsync(UserRole userRole);
         Task<RefreshToken> GetRefreshTokenAsync(string refreshToken);
         Task<User> GetUserByUserIdAsync(string userid);
-        Task RecordFailedLoginAsync(string userid, int maxAttempts, int lockoutMinutes);
-        Task ResetFailedLoginAsync(string userid);
     }
 }

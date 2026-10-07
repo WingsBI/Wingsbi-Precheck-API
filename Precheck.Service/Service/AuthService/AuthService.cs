@@ -25,25 +25,6 @@ namespace Precheck.Service.Service.AuthService
         private const int Iterations = 100000;
         private const int HashSize = 256 / 8;
 
-        private const int MaxFailedAttempts = 5;
-        private const int LockoutMinutes = 15;
-
-        // Rejects the attempt while the account is locked; clears a lockout that has already expired.
-        private async Task EnsureNotLockedOutAsync(User user, string action)
-        {
-            if (user.LockoutEnd == null)
-                return;
-
-            if (user.LockoutEnd > DateTime.UtcNow)
-            {
-                _logger.LogWarning("{Action} blocked: UserId {UserId} is locked out until {LockoutEnd}", action, user.UserId, user.LockoutEnd);
-                throw new ApplicationException($"Too many failed attempts. Account is locked for {LockoutMinutes} minutes.");
-            }
-
-            await _userRepository.ResetFailedLoginAsync(user.UserId);
-            user.FailedLoginAttempts = 0;
-            user.LockoutEnd = null;
-        }
 
         public AuthService(IUserRepository userRepository, IConfiguration configuration, ILogger<AuthService> logger)
         {
@@ -72,8 +53,6 @@ namespace Precheck.Service.Service.AuthService
                     throw new ApplicationException("Invalid credentials or user is deactivated");
                 }
 
-                await EnsureNotLockedOutAsync(user, "Login");
-
                 if (user.ApprovedBy != 1)
                 {
                     _logger.LogWarning("Login failed: User {UserId} is not approved by admin.", request.UserId);
@@ -83,13 +62,7 @@ namespace Precheck.Service.Service.AuthService
                 if (!VerifyPasswordHash(request.Password, user.PasswordHash, user.SecurityStamp))
                 {
                     _logger.LogWarning("Login failed: Invalid password for UserId {UserId}", request.UserId);
-                    await _userRepository.RecordFailedLoginAsync(user.UserId, MaxFailedAttempts, LockoutMinutes);
                     throw new ApplicationException("Invalid credentials");
-                }
-
-                if (user.FailedLoginAttempts > 0)
-                {
-                    await _userRepository.ResetFailedLoginAsync(user.UserId);
                 }
 
                 _logger.LogTrace("Generating JWT token for UserId: {UserId}", request.UserId);
@@ -131,19 +104,15 @@ namespace Precheck.Service.Service.AuthService
                     throw new ApplicationException("User does not exist.");
                 }
 
-                await EnsureNotLockedOutAsync(existingUser, "Reset");
-
                 if (existingUser.SecurityQuestionId != request.SecurityQuestionId)
                 {
                     _logger.LogWarning("Security Question didn't match for UserId {UserId}", request.UserId);
-                    await _userRepository.RecordFailedLoginAsync(existingUser.UserId, MaxFailedAttempts, LockoutMinutes);
                     throw new ApplicationException("Incorrect Security Question");
                 }
 
                 if (existingUser.SecurityAnswer != request.SecurityAnswer)
                 {
                     _logger.LogWarning("Security answer was wrong for UserId {UserId}", request.UserId);
-                    await _userRepository.RecordFailedLoginAsync(existingUser.UserId, MaxFailedAttempts, LockoutMinutes);
                     throw new ApplicationException("Incorrect Security Answer");
                 }
 
@@ -158,7 +127,6 @@ namespace Precheck.Service.Service.AuthService
                 };
 
                 await _userRepository.UpdateUserAsync(user);
-                await _userRepository.ResetFailedLoginAsync(existingUser.UserId);
                 _logger.LogInformation("Password reset successfully for UserId: {UserId}", request.UserId);
 
                 return true;

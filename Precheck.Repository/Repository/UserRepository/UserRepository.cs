@@ -159,18 +159,6 @@ namespace Precheck.Repository.Repository.UserRepository
             }
         }
 
-        public async Task RecordFailedLoginAsync(string userid, int maxAttempts, int lockoutMinutes)
-        {
-            await _db.Execute(
-                Users.RECORD_FAILED_LOGIN_QUERY,
-                new { UserId = userid, MaxAttempts = maxAttempts, LockoutMinutes = lockoutMinutes });
-        }
-
-        public async Task ResetFailedLoginAsync(string userid)
-        {
-            await _db.Execute(Users.RESET_FAILED_LOGIN_QUERY, new { UserId = userid });
-        }
-
         public async Task UpdateUserAsync(ResetModel user)
         {
             _logger.LogInformation("Starting AddUserAsync for UserId: {UserId}", user.UserId);
