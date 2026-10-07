@@ -80,7 +80,7 @@ namespace Precheck.Host.Controllers
         [Authorize]
         public async Task AskStream([FromBody] ChatRequestDto request)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.Message))
+            if (request == null)
             {
                 Response.StatusCode = StatusCodes.Status400BadRequest;
                 return;
@@ -103,6 +103,21 @@ namespace Precheck.Host.Controllers
             Response.Headers["Content-Type"] = "text/event-stream";
             Response.Headers["Cache-Control"] = "no-cache";
             Response.Headers["X-Accel-Buffering"] = "no";
+
+            // Message is optional: with nothing to ask, skip the LLM and nothing is saved -
+            // just hand back the session id so the client can start/continue the chat.
+            if (string.IsNullOrWhiteSpace(request.Message))
+            {
+                var emptyDonePayload = JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    createdDate = DateTime.UtcNow,
+                    suggestedQuestions = ChatbotRoles.GetStarterQuestions(roleId)
+                });
+                await Response.WriteAsync($"event: done\ndata: {emptyDonePayload}\n\n", HttpContext.RequestAborted);
+                await Response.Body.FlushAsync(HttpContext.RequestAborted);
+                return;
+            }
 
             var updates = new List<AgentResponseUpdate>();
             try
@@ -227,7 +242,10 @@ namespace Precheck.Host.Controllers
                 }
             }
 
-            messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, request.Message));
+            if (!string.IsNullOrWhiteSpace(request.Message))
+            {
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, request.Message));
+            }
             var session = await agent.CreateSessionAsync();
             return (sessionId, session, messages);
         }

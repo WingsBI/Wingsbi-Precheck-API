@@ -20,5 +20,34 @@ namespace Precheck.Host.Agents
             4 => "QC: QR Code tracking and IR/MSN number lookups",
             _ => "Planner: Production Order status and tracking"
         };
+
+        // Starter questions shown when a chat is opened with no message.
+        public static string[] GetStarterQuestions(int roleId) => roleId switch
+        {
+            1 => new[]
+            {
+                "Do you want to see the total production orders?",
+                "Do you want to check the precheck status of a production order?",
+                "Do you want to look up a QR code or IR/MSN number?"
+            },
+            3 => new[]
+            {
+                "Do you want to see the pending prechecks?",
+                "Do you want to check the precheck status of a production order?",
+                "Do you want to check component availability?"
+            },
+            4 => new[]
+            {
+                "Do you want to look up the details of a QR code?",
+                "Do you want to find the IR number for a component?",
+                "Do you want to find the MSN number for a component?"
+            },
+            _ => new[]
+            {
+                "Do you want to see the total production orders?",
+                "Do you want to see the pending production orders?",
+                "Do you want to track the status of a production order?"
+            }
+        };
     }
 }
