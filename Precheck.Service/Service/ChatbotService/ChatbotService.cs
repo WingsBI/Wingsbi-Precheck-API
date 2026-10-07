@@ -28,6 +28,33 @@ namespace Precheck.Service.Service.ChatbotService
         public Task<List<ChatSessionRecord>> GetHistoryAsync(int sessionId)
             => _chatbotRepository.GetHistoryAsync(sessionId);
 
+        public async Task<SessionMessagesResponseDto?> GetSessionBySessionIdAsync(int sessionId, int userId, int count)
+        {
+            var rows = await _chatbotRepository.GetLastSessionMessagesAsync(sessionId, userId, count);
+
+            // No rows means the session doesn't exist or isn't owned by this user - indistinguishable on purpose.
+            if (rows.Count == 0)
+            {
+                return null;
+            }
+
+            return new SessionMessagesResponseDto
+            {
+                NewSessionId = await _chatbotRepository.GetNewSessionIdAsync(),
+                Messages = rows
+                    .AsEnumerable()
+                    .Reverse() // oldest first
+                    .Select(r => new ChatSessionItemDto
+                    {
+                        Id = r.Id,
+                        Request = r.Request,
+                        Response = r.Response,
+                        CreatedDate = r.CreatedDate
+                    })
+                    .ToList()
+            };
+        }
+
         public async Task<PreviousConversationsResponseDto> GetPreviousConversationsAsync(int userId, int? currentSessionId, int? cursor, int pageSize)
         {
             // A null currentSessionId means a brand-new chat, so every existing session counts as "previous".

@@ -27,10 +27,11 @@
     <PackageReference Include="DinkToPdf" Version="1.0.8" />
     <PackageReference Include="Mapster" Version="7.4.0" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.23.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting.AGUI.AspNetCore" Version="1.23.0-preview.260928.1" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.23.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.2" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="7.0.0" />
@@ -43,5 +44,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Precheck.Models\Precheck.Models.csproj" />
     <ProjectReference Include="..\Precheck.Service\Precheck.Service.csproj" />
+    <ProjectReference Include="..\Precheck.Agent\Precheck.Agent.csproj" />
   </ItemGroup>	
 </Project>

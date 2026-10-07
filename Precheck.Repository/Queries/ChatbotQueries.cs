@@ -50,5 +50,16 @@ namespace Precheck.Repository.Queries
             ORDER BY Id DESC";
 
         #endregion
+
+        #region GET_LAST_SESSION_MESSAGES
+
+        // Last @Count rows of one session, restricted to the owner, newest first.
+        public static readonly string GET_LAST_SESSION_MESSAGES = @"
+            SELECT TOP (@Count) Id, UserId, SessionId, Request, Response, CreatedDate
+            FROM ChatSession
+            WHERE SessionId = @SessionId AND UserId = @UserId
+            ORDER BY Id DESC";
+
+        #endregion
     }
 }

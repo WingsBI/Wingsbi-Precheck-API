@@ -93,7 +93,7 @@ namespace Precheck.Repository.Queries
              FROM tbl_users u
              inner join tbl_userroles ur on u.userroleid = ur.id
              inner join tbl_department dept on u.departmentid = dept.id
-             WHERE u.userid =  @userid AND u.isactive = 1";
+             WHERE (u.userid = @userid OR u.email = @userid) AND u.isactive = 1";
 
         // Check if email exists
         public static readonly string CHECK_EMAIL_EXISTS_QUERY = @"

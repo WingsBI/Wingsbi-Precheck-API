@@ -8,6 +8,19 @@ namespace Precheck.Models.DTOs.Chatbot
         public DateTime CreatedDate { get; set; }
     }
 
+    public class GetSessionRequestDto
+    {
+        public int SessionId { get; set; }
+    }
+
+    public class SessionMessagesResponseDto
+    {
+        // Fresh session id for the frontend to store; the returned messages are display-only.
+        public int NewSessionId { get; set; }
+        // Oldest first.
+        public List<ChatSessionItemDto> Messages { get; set; } = new();
+    }
+
     public class PreviousConversationsResponseDto
     {
         // Oldest first, so the client can render them in chronological order.
