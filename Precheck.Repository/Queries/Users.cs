@@ -23,23 +23,9 @@ namespace Precheck.Repository.Queries
             WHERE username = @UserName and isactive=1 ";
 
         public static readonly string GET_USER_BY_USERID = @"
-            SELECT id, email, username, securityquestionid, securityanswer, userid, approvedby, failedloginattempts, lockoutend
+            SELECT id, email, username, securityquestionid, securityanswer, userid, approvedby
             FROM tbl_users
             WHERE userid = @UserId and isactive = 1";
-
-        // Brute-force lockout: locks the account for @LockoutMinutes once @MaxAttempts consecutive failures are reached
-        public static readonly string RECORD_FAILED_LOGIN_QUERY = @"
-            UPDATE tbl_users
-            SET failedloginattempts = failedloginattempts + 1,
-                lockoutend = CASE WHEN failedloginattempts + 1 >= @MaxAttempts
-                                  THEN DATEADD(MINUTE, @LockoutMinutes, GETUTCDATE())
-                                  ELSE lockoutend END
-            WHERE userid = @UserId";
-
-        public static readonly string RESET_FAILED_LOGIN_QUERY = @"
-            UPDATE tbl_users
-            SET failedloginattempts = 0, lockoutend = NULL
-            WHERE userid = @UserId";
 
         // Insert new user
         public static readonly string INSERT_USER_QUERY = @"
@@ -103,7 +89,7 @@ namespace Precheck.Repository.Queries
 
         // Check if username exists
         public static readonly string CHECK_USERNAME_EXISTS_QUERY = @"
-          SELECT u.id, u.username, u.userid, u.passwordhash, u.securitystamp,u.userroleid,u.plantid,u.email, ur.role,u.departmentid , dept.name as departmentname, u.approvedBy as ApprovedBy, u.isactive, u.failedloginattempts, u.lockoutend
+          SELECT u.id, u.username, u.userid, u.passwordhash, u.securitystamp,u.userroleid,u.plantid,u.email, ur.role,u.departmentid , dept.name as departmentname, u.approvedBy as ApprovedBy, u.isactive
              FROM tbl_users u
              inner join tbl_userroles ur on u.userroleid = ur.id
              inner join tbl_department dept on u.departmentid = dept.id

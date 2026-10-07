@@ -30,9 +30,6 @@ namespace Precheck.Models.DataModel
         public int SecurityQuestionId { get; set; }
 
         public string SecurityAnswer { get; set; }
-
-        public int FailedLoginAttempts { get; set; }
-        public DateTime? LockoutEnd { get; set; }
     }
 
 
