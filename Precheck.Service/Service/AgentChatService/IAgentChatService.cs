@@ -6,5 +6,6 @@ namespace Precheck.Service.Service.AgentChatService
     {
         Task<long> SaveTurnAsync(int userId, Guid sessionId, string request, string? response, string? toolTrace, int? inputTokens, int? outputTokens);
         Task<AgentChatPageDto> GetSessionPageAsync(int userId, Guid sessionId, int limit, long? beforeId);
+        Task<SessionMessagesResponseDto?> GetSessionMessagesAsync(int userId, Guid sessionId, int count);
     }
 }

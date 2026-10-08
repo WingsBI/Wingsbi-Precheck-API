@@ -41,5 +41,30 @@ namespace Precheck.Service.Service.AgentChatService
                 NextCursor = hasMore && page.Count > 0 ? page[0].Id : null
             };
         }
+
+        public async Task<SessionMessagesResponseDto?> GetSessionMessagesAsync(int userId, Guid sessionId, int count)
+        {
+            var page = await GetSessionPageAsync(userId, sessionId, count, null);
+
+            // No rows means the session doesn't exist or isn't owned by this user - indistinguishable on purpose.
+            if (page.Items.Count == 0)
+            {
+                return null;
+            }
+
+            return new SessionMessagesResponseDto
+            {
+                SessionId = sessionId.ToString(),
+                Messages = page.Items
+                    .Select(i => new ChatSessionItemDto
+                    {
+                        Id = (int)i.Id,
+                        Request = i.Request,
+                        Response = i.Response ?? string.Empty,
+                        CreatedDate = i.CreatedDate
+                    })
+                    .ToList()
+            };
+        }
     }
 }

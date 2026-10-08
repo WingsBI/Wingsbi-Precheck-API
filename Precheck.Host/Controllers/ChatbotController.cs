@@ -3,6 +3,7 @@ using Azure;
 using Azure.AI.OpenAI;
 using Precheck.Host.Agents;
 using Precheck.Models.DTOs.Chatbot;
+using Precheck.Service.Service.AgentChatService;
 using Precheck.Service.Service.ChatbotService;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,15 +23,18 @@ namespace Precheck.Host.Controllers
         private readonly ILogger<ChatbotController> _logger;
         private readonly ChatbotAgentFactory _agentFactory;
         private readonly IChatbotService _chatbotService;
+        private readonly IAgentChatService _agentChatService;
 
         public ChatbotController(
             ILogger<ChatbotController> logger,
             ChatbotAgentFactory agentFactory,
-            IChatbotService chatbotService)
+            IChatbotService chatbotService,
+            IAgentChatService agentChatService)
         {
             _logger = logger;
             _agentFactory = agentFactory;
             _chatbotService = chatbotService;
+            _agentChatService = agentChatService;
         }
 
         [HttpPost("AskStream")]
@@ -213,7 +217,9 @@ namespace Precheck.Host.Controllers
         [ProducesResponseType(typeof(SessionMessagesResponseDto), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSessionBySessionId([FromBody] GetSessionRequestDto request)
         {
-            if (request == null || request.SessionId <= 0)
+            var isGuid = Guid.TryParse(request?.SessionId, out var guidSessionId);
+            var isLegacy = int.TryParse(request?.SessionId, out var legacySessionId) && legacySessionId > 0;
+            if (request == null || (!isGuid && !isLegacy))
             {
                 return BadRequest(new { message = "A valid sessionId is required." });
             }
@@ -222,7 +228,21 @@ namespace Precheck.Host.Controllers
             {
                 var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
 
-                var result = await _chatbotService.GetSessionBySessionIdAsync(request.SessionId, userId, PreviousConversationsPageSize);
+                // A Guid is a Copilot (AG-UI) session; a numeric id is a legacy AskStream session.
+                SessionMessagesResponseDto? result;
+                if (isGuid)
+                {
+                    result = await _agentChatService.GetSessionMessagesAsync(userId, guidSessionId, PreviousConversationsPageSize);
+                }
+                else
+                {
+                    result = await _chatbotService.GetSessionBySessionIdAsync(legacySessionId, userId, PreviousConversationsPageSize);
+                    if (result != null)
+                    {
+                        result.SessionId = result.NewSessionId?.ToString() ?? string.Empty;
+                    }
+                }
+
                 if (result == null)
                 {
                     return NotFound(new { message = "Session not found with this session id." });
