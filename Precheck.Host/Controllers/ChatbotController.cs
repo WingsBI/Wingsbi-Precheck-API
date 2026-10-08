@@ -257,6 +257,16 @@ namespace Precheck.Host.Controllers
             }
         }
 
+        // Recommended questions for the logged-in user's role, shown when a chat is opened (for the Copilot flow,
+        // which has no "empty message" call like AskStream). No LLM call.
+        [HttpGet("RecommendedQuestions")]
+        [Authorize]
+        public IActionResult GetRecommendedQuestions()
+        {
+            var roleId = Convert.ToInt32(User.FindFirst("roleid")?.Value ?? "0");
+            return Ok(new { suggestedQuestions = ChatbotRoles.GetStarterQuestions(roleId) });
+        }
+
         private async Task<(int SessionId, AgentSession? Session, List<Microsoft.Extensions.AI.ChatMessage> Messages)> LoadOrCreateSessionAsync(AIAgent agent, ChatRequestDto request, int userId)
         {
             var messages = new List<Microsoft.Extensions.AI.ChatMessage>();

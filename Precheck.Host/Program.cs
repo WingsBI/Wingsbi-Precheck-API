@@ -1,5 +1,6 @@
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Dapper;
+using Precheck.Agent;
 using Precheck.Repository.Database;
 using Precheck.Repository.Repository.ArchiveRepository;
 using Precheck.Repository.Repository.CommonRepository;
@@ -203,10 +204,9 @@ builder.Services.AddScoped<Precheck.Repository.Repository.ChatbotRepository.ICha
 builder.Services.AddScoped<Precheck.Service.Service.ChatbotService.IChatbotService, Precheck.Service.Service.ChatbotService.ChatbotService>();
 builder.Services.AddScoped<Precheck.Host.Agents.ChatbotTools>();
 builder.Services.AddScoped<Precheck.Host.Agents.ChatbotAgentFactory>();
-builder.Services.AddScoped<Precheck.Repository.Repository.AgentChatRepository.IAgentChatRepository, Precheck.Repository.Repository.AgentChatRepository.AgentChatRepository>();
-builder.Services.AddScoped<Precheck.Service.Service.AgentChatService.IAgentChatService, Precheck.Service.Service.AgentChatService.AgentChatService>();
-builder.Services.AddScoped<Precheck.Agent.AgentContextBuilder>();
-builder.Services.AddScoped<Precheck.Agent.AgentTurnRecorder>();
+
+// AI agent history, turn saving and follow-up questions - see the Precheck.Agent project
+builder.Services.AddCopilotAgent<Precheck.Host.Agents.SuggestedQuestionsProvider>();
 
 // CopilotKit / AG-UI: MapAGUIServer needs one agent instance at startup, so it gets a RequestScopedAgent
 // that builds the real (per-user) chatbot agent from the current request on every call.
