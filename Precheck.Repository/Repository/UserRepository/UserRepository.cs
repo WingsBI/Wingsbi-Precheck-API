@@ -297,6 +297,21 @@ namespace Precheck.Repository.Repository.UserRepository
             }
         }
 
+        public async Task RevokeUserRefreshTokensAsync(int userId)
+        {
+            _logger.LogInformation("Starting RevokeUserRefreshTokensAsync for user: {UserId}", userId);
+            try
+            {
+                await _db.Execute(Users.REVOKE_USER_REFRESH_TOKENS_QUERY, new { UserId = userId });
+                _logger.LogInformation("Successfully revoked refresh tokens for user: {UserId}", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to revoke refresh tokens for user: {UserId}. Error: {ErrorMessage}", userId, ex.Message);
+                throw;
+            }
+        }
+
         public async Task AddUserRoleAsync(UserRole userRole)
         {
             _logger.LogInformation("Starting AddUserRoleAsync for user: {UserId}, role: {Role}", userRole.Role);
