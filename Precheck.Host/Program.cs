@@ -194,6 +194,8 @@ builder.Services.AddScoped<IDrawingNumberService, DrawingNumberService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
 builder.Services.AddScoped<ITestingService, TestingService>();
 builder.Services.AddScoped<IHelperService, HelperService>();
+builder.Services.AddScoped<Precheck.Repository.Repository.AnalyticsRepository.IAnalyticsRepository, Precheck.Repository.Repository.AnalyticsRepository.AnalyticsRepository>();
+builder.Services.AddScoped<Precheck.Service.Service.AnalyticsService.IAnalyticsService, Precheck.Service.Service.AnalyticsService.AnalyticsService>();
 // Register Backup Archive Service (only archive service needed)
 builder.Services.AddScoped<IBackupArchiveService, BackupArchiveService>();
 // Production Order Import
