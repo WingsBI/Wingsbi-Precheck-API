@@ -37,7 +37,7 @@ namespace Precheck.Host.Agents
             var recorder = services.GetRequiredService<AgentTurnRecorder>();
             var suggestedQuestions = services.GetRequiredService<ISuggestedQuestionsProvider>();
 
-            // Only the AG-UI path goes through here, so the history/save middleware never touches AskStream/AskLite.
+            // Wrap the agent with the history/save/follow-up middleware (see Precheck.Agent).
             var agent = services.GetRequiredService<ChatbotAgentFactory>().BuildAgent(_name)
                 .AsBuilder()
                 .Use(runFunc: null, runStreamingFunc: (messages, session, options, inner, ct) =>

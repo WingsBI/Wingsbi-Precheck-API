@@ -5,7 +5,7 @@ using Precheck.Models.DTOs.Chatbot;
 
 namespace Precheck.Host.Agents
 {
-    // Follow-up questions for the AG-UI (Copilot) flow: same role-based generation as AskStream's done event.
+    // Follow-up questions for the AG-UI (Copilot) flow: up to 3, based on the user's role domain.
     public class SuggestedQuestionsProvider : ISuggestedQuestionsProvider
     {
         private readonly ChatbotAgentFactory _agentFactory;

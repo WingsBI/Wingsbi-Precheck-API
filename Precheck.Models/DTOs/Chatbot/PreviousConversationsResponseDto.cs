@@ -10,7 +10,7 @@ namespace Precheck.Models.DTOs.Chatbot
 
     public class GetSessionRequestDto
     {
-        // A Guid (AG-UI / Copilot sessions) or a numeric id (legacy AskStream sessions), sent as a string.
+        // A Guid (AG-UI / Copilot sessions) or a numeric id (legacy int sessions), sent as a string.
         public string SessionId { get; set; } = string.Empty;
     }
 
