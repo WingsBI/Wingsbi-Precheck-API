@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -14,6 +15,9 @@ namespace Precheck.Agent
     //  4. Suggestions: after the save, appends up to 3 role-based follow-up questions as a ```suggestions block.
     public static class AgentRunMiddleware
     {
+        private static readonly Regex SuggestionsBlock =
+            new(@"\s*```suggestions\s*\[.*?\]\s*```\s*$", RegexOptions.Singleline | RegexOptions.Compiled);
+
         public static async IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
             IEnumerable<ChatMessage> messages,
             AgentSession? session,
@@ -59,14 +63,20 @@ namespace Precheck.Agent
                 yield return update;
             }
 
-            // The reply is complete here: save the turn first, so the suggestions block below is never stored.
-            await recorder.SaveAsync(received, reply.ToString(), toolCalls, input, output);
+            // The model writes its own ```suggestions block at the end of the reply (see the system prompt), so
+            // the chips come from the same generation that produced the answer. Strip it before saving, so
+            // it is never stored or fed back into later turns.
+            var fullReply = reply.ToString();
+            var match = SuggestionsBlock.Match(fullReply);
+            var cleanReply = match.Success ? fullReply.Remove(match.Index).TrimEnd() : fullReply;
+            await recorder.SaveAsync(received, cleanReply, toolCalls, input, output);
 
-            // Follow-up questions: appended to the reply as a fenced ```suggestions block the chat UI turns into chips.
+            // Fallback: if the model left the block out (and the reply wasn't a clarifying question), ask a
+            // separate call for follow-ups. A second reply-time call is only made when needed.
             var question = received.LastOrDefault(m => m.Role == ChatRole.User)?.Text;
-            if (lastMessageId is not null && reply.Length > 0 && !string.IsNullOrWhiteSpace(question))
+            if (!match.Success && lastMessageId is not null && cleanReply.Length > 0 && !string.IsNullOrWhiteSpace(question))
             {
-                var questions = await suggestedQuestions.GetAsync(question, reply.ToString());
+                var questions = await suggestedQuestions.GetAsync(question, cleanReply);
                 if (questions.Count > 0)
                 {
                     var json = JsonSerializer.Serialize(questions);

@@ -34,7 +34,14 @@ namespace Precheck.Host.Agents
                 {
                     new(ChatRole.System,
                         $"The user's role domain is: {domainDescription}. Given the exchange below, suggest up to 3 " +
-                        "short, relevant follow-up questions specific to that role's domain. Return only the structured result."),
+                        "short follow-up requests specific to that role's domain. Each one will be sent as the user's own " +
+                        "next message when clicked, so write it from the user's point of view as a direct, self-contained " +
+                        "command or question the assistant can answer immediately. Use simple everyday words and vary the " +
+                        "wording so the suggestions start with different words and not all with \"Show\" (e.g. \"Give me " +
+                        "the pending production orders\", \"How many QR codes are available?\", \"List the pending " +
+                        "prechecks\"). Never address the user (no \"Do you want...\" or \"Would you like...\"), and never " +
+                        "suggest something that needs an identifier the user hasn't given (like a specific PO or QR number). " +
+                        "Return only the structured result."),
                     new(ChatRole.User, $"Question: {question}\nAnswer: {answer}")
                 };
 

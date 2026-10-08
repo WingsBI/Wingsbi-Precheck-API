@@ -22,31 +22,33 @@ namespace Precheck.Host.Agents
         };
 
         // Starter questions shown when a chat is opened with no message.
+        // Each one is sent as the user's own message when clicked, so it must be a self-contained
+        // request the agent can answer directly - not a question addressed to the user.
         public static string[] GetStarterQuestions(int roleId) => roleId switch
         {
             1 => new[]
             {
-                "Do you want to see the total production orders?",
-                "Do you want to check the precheck status of a production order?",
-                "Do you want to look up a QR code or IR/MSN number?"
+                "How many production orders are there?",
+                "List the pending prechecks",
+                "Give me the available QR codes"
             },
             3 => new[]
             {
-                "Do you want to see the pending prechecks?",
-                "Do you want to check the precheck status of a production order?",
-                "Do you want to check component availability?"
+                "List the pending prechecks",
+                "Which production orders are partially completed?",
+                "Give me the available components"
             },
             4 => new[]
             {
-                "Do you want to look up the details of a QR code?",
-                "Do you want to find the IR number for a component?",
-                "Do you want to find the MSN number for a component?"
+                "Give me the available QR codes",
+                "How many QR codes are consumed?",
+                "Tell me the QR code summary"
             },
             _ => new[]
             {
-                "Do you want to see the total production orders?",
-                "Do you want to see the pending production orders?",
-                "Do you want to track the status of a production order?"
+                "How many production orders are there?",
+                "List the pending production orders",
+                "Give me the completed production orders"
             }
         };
     }

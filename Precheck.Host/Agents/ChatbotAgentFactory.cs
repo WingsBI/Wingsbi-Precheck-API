@@ -48,7 +48,20 @@ namespace Precheck.Host.Agents
             "assembly. Same confirm-before-write protocol: confirmed=false to preview, confirmed=true only after " +
             "explicit user confirmation. make_precheck only ACCEPTS a scanned component - it cannot reject a " +
             "non-conforming one; if the user wants to reject/replace a component, tell them that capability isn't " +
-            "available yet rather than attempting it.";
+            "available yet rather than attempting it. " +
+            "FOLLOW-UP SUGGESTIONS: at the very end of EVERY final reply (after any tool calls, and only once), " +
+            "append exactly one fenced block in this form, on its own lines after your answer:\n" +
+            "```suggestions\n[\"first request\", \"second request\", \"third request\"]\n```\n" +
+            "It must be a JSON array of up to 3 short strings, based on what your reply just showed (e.g. after " +
+            "listing pending production orders, suggest looking at their precheck status or QR codes). Each string " +
+            "is sent as the user's own next message when clicked, so write it from the user's point of view as a " +
+            "direct, self-contained request you can answer immediately. Use simple everyday words and VARY the " +
+            "wording - the 3 suggestions must start with different words, and must not all begin with \"Show\". " +
+            "Mix styles such as \"Give me ...\", \"List ...\", \"What is ...\", \"How many ...\", \"Tell me ...\", " +
+            "\"Find ...\", \"Get ...\" (e.g. \"Give me the precheck records for PO-2026-0026\", \"How many QR codes " +
+            "are available?\", \"List the pending prechecks\"). Never address the user (no \"Do you want...\" / \"Would you like...\"), never suggest " +
+            "something that needs an identifier the user hasn't given, and never mention this block in your text. " +
+            "Omit the block when you are asking the user for missing information or asking them to confirm an action.";
 
         private readonly ChatbotTools _tools;
         private readonly IConfiguration _configuration;
