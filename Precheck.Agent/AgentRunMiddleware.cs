@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace Precheck.Agent
 {
@@ -26,13 +27,16 @@ namespace Precheck.Agent
             AgentContextBuilder contextBuilder,
             AgentTurnRecorder recorder,
             ISuggestedQuestionsProvider suggestedQuestions,
-            [EnumeratorCancellation] CancellationToken cancellationToken)
+            [EnumeratorCancellation] CancellationToken cancellationToken,
+            ILogger? logger = null)
         {
-            long input = 0, output = 0;
+            long input = 0, output = 0, cached = 0;
+            int modelCalls = 0;
             string? lastMessageId = null;
             var received = messages.ToList();
             var reply = new StringBuilder();
             var toolCalls = new List<FunctionCallContent>();
+            var toolResults = new Dictionary<string, object?>();
 
             var context = await contextBuilder.BuildAsync(received);
 
@@ -43,14 +47,19 @@ namespace Precheck.Agent
                     switch (content)
                     {
                         case UsageContent usage:
+                            modelCalls++;
                             input += usage.Details.InputTokenCount ?? 0;
                             output += usage.Details.OutputTokenCount ?? 0;
+                            cached += usage.Details.CachedInputTokenCount ?? 0;
                             break;
                         case TextContent text:
                             reply.Append(text.Text);
                             break;
                         case FunctionCallContent call:
                             toolCalls.Add(call);
+                            break;
+                        case FunctionResultContent resultContent:
+                            toolResults[resultContent.CallId] = resultContent.Result;
                             break;
                     }
                 }
@@ -62,6 +71,22 @@ namespace Precheck.Agent
 
                 yield return update;
             }
+
+            // Plain count question: the loop ended right after the tool (see AgentFastAnswer), so write the sentence
+            // here, with its follow-up chips, instead of paying for a second model call.
+            if (reply.Length == 0 && toolCalls.Count == 1 && toolResults.TryGetValue(toolCalls[0].CallId, out var onlyResult) &&
+                AgentFastAnswer.TryBuild(toolCalls[0].Name, toolCalls[0].Arguments, onlyResult, AgentFastAnswer.LastUserText(received), out var fast))
+            {
+                var fastText = $"{fast.Text}\n\n```suggestions\n{JsonSerializer.Serialize(fast.FollowUps)}\n```";
+                lastMessageId = Guid.NewGuid().ToString("N");
+                reply.Append(fastText);
+                yield return new AgentResponseUpdate(ChatRole.Assistant, fastText) { MessageId = lastMessageId };
+            }
+
+            // Azure OpenAI caches the repeated prompt prefix (>= 1024 tokens) automatically; this shows the hit rate.
+            logger?.LogInformation(
+                "Agent run tokens: calls={Calls}, input={Input} (cached={Cached}, {Percent}%), output={Output}",
+                modelCalls, input, cached, input > 0 ? cached * 100 / input : 0, output);
 
             // The model writes its own ```suggestions block at the end of the reply (see the system prompt), so
             // the chips come from the same generation that produced the answer. Strip it before saving, so

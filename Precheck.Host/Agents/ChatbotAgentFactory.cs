@@ -3,6 +3,7 @@ using Azure.AI.OpenAI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI.Chat;
+using Precheck.Agent;
 
 namespace Precheck.Host.Agents
 {
@@ -65,11 +66,13 @@ namespace Precheck.Host.Agents
 
         private readonly ChatbotTools _tools;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<ChatbotAgentFactory> _logger;
 
-        public ChatbotAgentFactory(ChatbotTools tools, IConfiguration configuration)
+        public ChatbotAgentFactory(ChatbotTools tools, IConfiguration configuration, ILogger<ChatbotAgentFactory> logger)
         {
             _tools = tools;
             _configuration = configuration;
+            _logger = logger;
         }
 
         public ChatClient BuildChatClient()
@@ -91,7 +94,7 @@ namespace Precheck.Host.Agents
 
             IList<AITool> tools = new List<AITool>
             {
-                AIFunctionFactory.Create(_tools.GetProductionOrderStatusAsync, name: "get_production_order_status"),
+                new TrimmingAIFunction(AIFunctionFactory.Create(_tools.GetProductionOrderStatusAsync, name: "get_production_order_status"), _logger),
                 AIFunctionFactory.Create(_tools.GetProductionOrderDetailsAsync, name: "get_production_order_details"),
                 AIFunctionFactory.Create(_tools.GetComponentTypesAsync, name: "get_component_types"),
                 AIFunctionFactory.Create(_tools.GetComponentTypeByNameAsync, name: "get_component_type_by_name"),
@@ -123,7 +126,16 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),
             };
 
-            return chatClient.AsAIAgent(instructions: SystemPrompt, name: name, tools: tools);
+            AgentFastAnswer.Enabled = !bool.TryParse(_configuration["AgentSettings:FastAnswers"], out var fastAnswers) || fastAnswers;
+
+            // Own function-invocation layer so plain count answers can end the loop early (see AgentFastAnswer).
+            IChatClient client = chatClient
+                .AsIChatClient()
+                .AsBuilder()
+                .UseFunctionInvocation(configure: invoker => invoker.FunctionInvoker = AgentFastAnswer.InvokeAsync)
+                .Build();
+
+            return client.AsAIAgent(instructions: SystemPrompt, name: name, tools: tools);
         }
     }
 }

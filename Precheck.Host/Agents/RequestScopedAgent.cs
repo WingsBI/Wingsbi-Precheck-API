@@ -41,7 +41,8 @@ namespace Precheck.Host.Agents
             var agent = services.GetRequiredService<ChatbotAgentFactory>().BuildAgent(_name)
                 .AsBuilder()
                 .Use(runFunc: null, runStreamingFunc: (messages, session, options, inner, ct) =>
-                    AgentRunMiddleware.RunStreamingAsync(messages, session, options, inner, contextBuilder, recorder, suggestedQuestions, ct))
+                    AgentRunMiddleware.RunStreamingAsync(messages, session, options, inner, contextBuilder, recorder, suggestedQuestions, ct,
+                        services.GetRequiredService<ILoggerFactory>().CreateLogger("Precheck.Agent.Tokens")))
                 .Build();
             context.Items[ItemKey] = agent;
             return agent;
