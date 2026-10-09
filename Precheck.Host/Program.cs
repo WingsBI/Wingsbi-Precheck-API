@@ -310,7 +310,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapAGUIServer("/api/copilot", new Precheck.Host.Agents.RequestScopedAgent(
+app.MapAGUIServer("/api/aiAssistant", new Precheck.Host.Agents.RequestScopedAgent(
     app.Services.GetRequiredService<IHttpContextAccessor>(), "precheck-chatbot")).RequireAuthorization();
 
 app.Run();
