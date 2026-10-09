@@ -205,6 +205,10 @@ builder.Services.AddScoped<Precheck.Service.Service.ProductionOrderService.IProd
 builder.Services.AddScoped<Precheck.Repository.Repository.ChatbotRepository.IChatbotRepository, Precheck.Repository.Repository.ChatbotRepository.ChatbotRepository>();
 builder.Services.AddScoped<Precheck.Service.Service.ChatbotService.IChatbotService, Precheck.Service.Service.ChatbotService.ChatbotService>();
 builder.Services.AddScoped<Precheck.Host.Agents.ChatbotTools>();
+// Excel files attached in the chat (upload endpoint + the tools that act on them)
+builder.Services.AddSingleton<Precheck.Host.Helpers.ChatUploadStore>();
+builder.Services.AddScoped<Precheck.Host.Helpers.ExcelScriptRunner>();
+builder.Services.AddScoped<Precheck.Host.Agents.ChatbotFileTools>();
 builder.Services.AddScoped<Precheck.Host.Agents.ChatbotAgentFactory>();
 
 // AI agent history, turn saving and follow-up questions - see the Precheck.Agent project

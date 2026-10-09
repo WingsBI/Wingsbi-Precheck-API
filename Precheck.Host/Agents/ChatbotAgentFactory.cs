@@ -50,6 +50,21 @@ namespace Precheck.Host.Agents
             "explicit user confirmation. make_precheck only ACCEPTS a scanned component - it cannot reject a " +
             "non-conforming one; if the user wants to reject/replace a component, tell them that capability isn't " +
             "available yet rather than attempting it. " +
+            "EXCEL FILE ATTACHMENTS: a user message may contain an attachment note like [Attached file \"x.xlsx\" - " +
+            "fileId: <id>]. When you see a NEW attachment, do NOT call any tool and do NOT guess what the file is for - " +
+            "reply by asking what they want to do with it, offering these options: (1) import new Production Orders; " +
+            "(2) update MIN/Status of existing Production Orders; (3) make Precheck in bulk (BOM sheet with QR codes); " +
+            "(4) bulk Store In QR codes; (5) generate standard QR codes; (6) import QR codes with IR/MSN numbers; " +
+            "(7) upload master data (needs TWO files: a drawing-assembly file and a drawing file). Once they answer, call " +
+            "exactly the matching tool (import_production_orders_from_excel, update_production_order_min_status_from_excel, " +
+            "make_precheck_from_excel, bulk_store_in_from_excel, run_standard_qr_generation_from_excel, " +
+            "run_qr_code_import_from_excel, run_master_data_upload) with that file's fileId - no extra confirmation is " +
+            "needed because their answer is the instruction. If the answer is ambiguous, ask again instead of choosing. " +
+            "For master data, if only one file has been attached ask for the other, and if it is unclear which is the " +
+            "drawing-assembly file and which is the drawing file, ask. Only ever use a fileId that appears in an " +
+            "attachment note - never invent one. If a tool says the file was not found or expired, ask them to attach it " +
+            "again. Report the counts the tool returned and list the failures it returned; never claim success for rows " +
+            "or scripts that failed, and never invent rows. " +
             "FOLLOW-UP SUGGESTIONS: at the very end of EVERY final reply (after any tool calls, and only once), " +
             "append exactly one fenced block in this form, on its own lines after your answer:\n" +
             "```suggestions\n[\"first request\", \"second request\", \"third request\"]\n```\n" +
@@ -65,12 +80,14 @@ namespace Precheck.Host.Agents
             "Omit the block when you are asking the user for missing information or asking them to confirm an action.";
 
         private readonly ChatbotTools _tools;
+        private readonly ChatbotFileTools _fileTools;
         private readonly IConfiguration _configuration;
         private readonly ILogger<ChatbotAgentFactory> _logger;
 
-        public ChatbotAgentFactory(ChatbotTools tools, IConfiguration configuration, ILogger<ChatbotAgentFactory> logger)
+        public ChatbotAgentFactory(ChatbotTools tools, ChatbotFileTools fileTools, IConfiguration configuration, ILogger<ChatbotAgentFactory> logger)
         {
             _tools = tools;
+            _fileTools = fileTools;
             _configuration = configuration;
             _logger = logger;
         }
@@ -124,6 +141,13 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.CreateStandardMsnNumberAsync, name: "create_standard_msn_number"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),
+                AIFunctionFactory.Create(_fileTools.ImportProductionOrdersFromExcelAsync, name: "import_production_orders_from_excel"),
+                AIFunctionFactory.Create(_fileTools.UpdateProductionOrderMinStatusFromExcelAsync, name: "update_production_order_min_status_from_excel"),
+                AIFunctionFactory.Create(_fileTools.MakePrecheckFromExcelAsync, name: "make_precheck_from_excel"),
+                AIFunctionFactory.Create(_fileTools.BulkStoreInFromExcelAsync, name: "bulk_store_in_from_excel"),
+                AIFunctionFactory.Create(_fileTools.RunStandardQrGenerationAsync, name: "run_standard_qr_generation_from_excel"),
+                AIFunctionFactory.Create(_fileTools.RunQrCodeImportAsync, name: "run_qr_code_import_from_excel"),
+                AIFunctionFactory.Create(_fileTools.RunMasterDataAsync, name: "run_master_data_upload"),
             };
 
             AgentFastAnswer.Enabled = !bool.TryParse(_configuration["AgentSettings:FastAnswers"], out var fastAnswers) || fastAnswers;

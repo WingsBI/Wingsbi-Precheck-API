@@ -1,3 +1,4 @@
+using Precheck.Host.Helpers;
 using Precheck.Models.DataModel;
 using Precheck.Models.DataModel.Precheck;
 using Precheck.Models.DTOs.Barcode;
@@ -166,10 +167,10 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "No file uploaded" });
             }
 
-            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
-                !file.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+            var fileError = ExcelFileValidator.Validate(file);
+            if (fileError != null)
             {
-                return BadRequest(new { message = "Invalid file format. Please upload an Excel file (.xlsx or .xls)" });
+                return BadRequest(new { message = fileError });
             }
 
             try
