@@ -1,4 +1,5 @@
 using Precheck.Host.Agents;
+using Precheck.Host.Helpers;
 using Precheck.Models.DTOs.Chatbot;
 using Precheck.Service.Service.AgentChatService;
 using Precheck.Service.Service.ChatbotService;
@@ -16,15 +17,58 @@ namespace Precheck.Host.Controllers
         private readonly ILogger<ChatbotController> _logger;
         private readonly IChatbotService _chatbotService;
         private readonly IAgentChatService _agentChatService;
+        private readonly ChatUploadStore _uploads;
 
         public ChatbotController(
             ILogger<ChatbotController> logger,
             IChatbotService chatbotService,
-            IAgentChatService agentChatService)
+            IAgentChatService agentChatService,
+            ChatUploadStore uploads)
         {
             _logger = logger;
             _chatbotService = chatbotService;
             _agentChatService = agentChatService;
+            _uploads = uploads;
+        }
+
+        // Step 1 of attaching a file in the chat: the frontend posts the file here, gets a fileId back, and sends
+        // attachmentNote as part of the user's next chat message. The agent then asks what to do with the file and
+        // calls the matching tool (see ChatbotFileTools). Nothing is read or imported at this point.
+        [HttpPost("UploadFile")]
+        [Authorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> UploadFile(IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "No file uploaded" });
+            }
+
+            var fileError = ExcelFileValidator.Validate(file);
+            if (fileError != null)
+            {
+                return BadRequest(new { message = fileError });
+            }
+
+            try
+            {
+                var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
+                var saved = await _uploads.SaveAsync(file, userId);
+
+                return Ok(new
+                {
+                    fileId = saved.FileId,
+                    fileName = saved.FileName,
+                    sizeBytes = saved.SizeBytes,
+                    attachmentNote = $"[Attached file \"{saved.FileName}\" - fileId: {saved.FileId}]"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception Error for ChatbotController:UploadFile");
+                return StatusCode(500, new { message = "Unable to save the file." });
+            }
         }
 
         // Called after a page refresh: the frontend sends the session id it kept and gets back the last

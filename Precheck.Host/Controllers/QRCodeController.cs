@@ -1,3 +1,4 @@
+using Precheck.Host.Helpers;
 using Precheck.Models.DataModel;
 using Precheck.Models.DTOs.Barcode;
 using Precheck.Models.DTOs.Precheck;
@@ -440,17 +441,17 @@ namespace Precheck.Host.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> BulkStoreInFromExcel(IFormFile file)
         {
-            _logger.LogInformation("Request received for BulkStoreInFromExcel, file: {FileName}", file?.FileName);
+            _logger.LogInformation("Request received for BulkStoreInFromExcel, file: {FileName}", ExcelFileValidator.SafeNameForLog(file?.FileName));
 
             if (file == null || file.Length == 0)
             {
                 return BadRequest(new { message = "No file uploaded" });
             }
 
-            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
-                !file.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+            var fileError = ExcelFileValidator.Validate(file);
+            if (fileError != null)
             {
-                return BadRequest(new { message = "Invalid file format. Please upload an Excel file (.xlsx or .xls)" });
+                return BadRequest(new { message = fileError });
             }
 
             try

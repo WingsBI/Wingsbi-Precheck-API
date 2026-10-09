@@ -1,3 +1,4 @@
+using Precheck.Host.Helpers;
 using System;
 using System.Threading.Tasks;
 using Precheck.Service.Service.ProductionOrderService;
@@ -43,10 +44,10 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "No file uploaded" });
             }
 
-            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
-                !file.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+            var fileError = ExcelFileValidator.Validate(file);
+            if (fileError != null)
             {
-                return BadRequest(new { message = "Invalid file format. Please upload an Excel file (.xlsx or .xls)" });
+                return BadRequest(new { message = fileError });
             }
 
             try
@@ -98,10 +99,10 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "No file uploaded" });
             }
 
-            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
-                !file.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+            var fileError = ExcelFileValidator.Validate(file);
+            if (fileError != null)
             {
-                return BadRequest(new { message = "Invalid file format. Please upload an Excel file (.xlsx or .xls)" });
+                return BadRequest(new { message = fileError });
             }
 
             try

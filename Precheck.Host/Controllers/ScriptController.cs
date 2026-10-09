@@ -1,8 +1,10 @@
+using Precheck.Host.Helpers;
 using Precheck.Models.DTOs.Scripts;
 using Precheck.Service.Service.ScriptService;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace Precheck.Host.Controllers
 {
@@ -10,6 +12,11 @@ namespace Precheck.Host.Controllers
     [ApiController]
     public class ScriptController : ControllerBase
     {
+        // The only names the upload endpoints ever hand out: "{guid}_uploaded.xlsx", "{guid}_masterdata1.xlsx", "{guid}_masterdata2.xlsx".
+        private static readonly Regex UploadedFileName = new(
+            @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_(uploaded|masterdata[12])\.xlsx\z",
+            RegexOptions.Compiled);
+
         private readonly ILogger<ScriptController> _logger;
         private readonly string _uploadPath;
         private readonly string _stdQRScriptPath;
@@ -40,15 +47,17 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "No file received." });
             }
 
-            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            var fileError = ExcelFileValidator.Validate(file, allowXls: false);
+            if (fileError != null)
             {
-                _logger.LogWarning("ScriptController:UploadExcel - Invalid file type received.");
-                return BadRequest(new { message = "Only .xlsx files are accepted." });
+                _logger.LogWarning("ScriptController:UploadExcel - Invalid file received: {Error}", fileError);
+                return BadRequest(new { message = fileError });
             }
 
             _logger.LogInformation("Request received for ScriptController:UploadExcel");
             try
             {
+
                 // Unique name so multiple users don't overwrite each other
                 var fileName = $"{Guid.NewGuid()}_uploaded.xlsx";
                 var savePath = Path.Combine(_uploadPath, fileName);
@@ -91,11 +100,15 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "FileName cannot be empty." });
             }
 
-            _logger.LogInformation($"Request received for ScriptController:RunSTDQRGeneration - {request.FileName[0]}");
+            _logger.LogInformation("Request received for ScriptController:RunSTDQRGeneration - {FileName}", ExcelFileValidator.SafeNameForLog(request.FileName[0]));
+            if (ResolveUploadedFile(request.FileName[0], out var excelPath, out var fileError) == null)
+            {
+                _logger.LogWarning("ScriptController:RunSTDQRGeneration - Rejected file name: {Error}", fileError);
+                return BadRequest(new { message = fileError });
+            }
             try
             {
                 var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
-                var excelPath = Path.Combine(_uploadPath, request.FileName[0]);
                 return ExecuteScript(_stdQRScriptPath, excelPath, "RunSTDQRGeneration", null, userId.ToString());
             }
             catch (ApplicationException ex)
@@ -122,11 +135,15 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "FileName cannot be empty." });
             }
 
-            _logger.LogInformation($"Request received for ScriptController:RunQRCodeImport - {request.FileName[0]}");
+            _logger.LogInformation("Request received for ScriptController:RunQRCodeImport - {FileName}", ExcelFileValidator.SafeNameForLog(request.FileName[0]));
+            if (ResolveUploadedFile(request.FileName[0], out var excelPath, out var fileError) == null)
+            {
+                _logger.LogWarning("ScriptController:RunQRCodeImport - Rejected file name: {Error}", fileError);
+                return BadRequest(new { message = fileError });
+            }
             try
             {
                 var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
-                var excelPath = Path.Combine(_uploadPath, request.FileName[0]);
                 return ExecuteScript(_qrImportScriptPath, excelPath, "RunQRCodeImport", null, userId.ToString());
             }
             catch (ApplicationException ex)
@@ -157,14 +174,17 @@ namespace Precheck.Host.Controllers
                 _logger.LogWarning("ScriptController:UploadMasterDataExcel - file2 is missing.");
                 return BadRequest(new { message = "Second file (file2) is required." });
             }
-            if (!file1.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-                return BadRequest(new { message = "file1: Only .xlsx files are accepted." });
-            if (!file2.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-                return BadRequest(new { message = "file2: Only .xlsx files are accepted." });
+            var file1Error = ExcelFileValidator.Validate(file1, allowXls: false, label: "file1");
+            if (file1Error != null)
+                return BadRequest(new { message = file1Error });
+            var file2Error = ExcelFileValidator.Validate(file2, allowXls: false, label: "file2");
+            if (file2Error != null)
+                return BadRequest(new { message = file2Error });
 
             _logger.LogInformation("Request received for ScriptController:UploadMasterDataExcel");
             try
             {
+
                 var fileName1 = $"{Guid.NewGuid()}_masterdata1.xlsx";
                 var fileName2 = $"{Guid.NewGuid()}_masterdata2.xlsx";
 
@@ -217,7 +237,19 @@ namespace Precheck.Host.Controllers
                 return BadRequest(new { message = "FileName array must not contain empty entries." });
             }
 
-            _logger.LogInformation($"Request received for ScriptController:RunMasterData - {string.Join(", ", request.FileName)}");
+            _logger.LogInformation("Request received for ScriptController:RunMasterData - {FileNames}",
+                string.Join(", ", request.FileName.Select(ExcelFileValidator.SafeNameForLog)));
+
+            if (ResolveUploadedFile(request.FileName[0], out var excelPath1, out var fileError) == null ||
+                ResolveUploadedFile(request.FileName[1], out var excelPath2, out fileError) == null)
+            {
+                _logger.LogWarning("ScriptController:RunMasterData - Rejected file name: {Error}", fileError);
+                return BadRequest(new { message = fileError });
+            }
+            if (string.Equals(excelPath1, excelPath2, StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "The two files must be different." });
+            }
 
             var scriptDir = Path.GetDirectoryName(_masterDataScriptPath)!;
             string? scriptDirCopy1 = null;
@@ -226,9 +258,6 @@ namespace Precheck.Host.Controllers
             try
             {
                 var userId = Convert.ToInt32(User.FindFirst("id")?.Value);
-                var excelPath1 = Path.Combine(_uploadPath, request.FileName[0]);
-                var excelPath2 = Path.Combine(_uploadPath, request.FileName[1]);
-
                 // Copy uploaded files into the script's own folder so the script can find them
                 scriptDirCopy1 = Path.Combine(scriptDir, request.FileName[0]);
                 scriptDirCopy2 = Path.Combine(scriptDir, request.FileName[1]);
@@ -302,6 +331,38 @@ namespace Precheck.Host.Controllers
         }
 
         // Single-file variant
+        // The Run* endpoints get a file name from the client. Only the exact names the upload endpoints generate are
+        // accepted (no path parts, no absolute paths), the resolved path must stay inside the upload folder, and the
+        // file must exist there. Returns the full path to use, or an error message for a 400.
+        private string? ResolveUploadedFile(string? name, out string fullPath, out string? error)
+        {
+            fullPath = string.Empty;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(name) || !UploadedFileName.IsMatch(name))
+            {
+                error = "Invalid file name.";
+                return null;
+            }
+
+            var uploadRoot = Path.GetFullPath(_uploadPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var candidate = Path.GetFullPath(Path.Combine(_uploadPath, name));
+            if (!candidate.StartsWith(uploadRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Invalid file name.";
+                return null;
+            }
+
+            if (!System.IO.File.Exists(candidate))
+            {
+                error = "Uploaded file not found. Please upload the file again.";
+                return null;
+            }
+
+            fullPath = candidate;
+            return candidate;
+        }
+
         private ActionResult ExecuteScript(string scriptPath, string excelPath, string apiName)
             => ExecuteScript(scriptPath, excelPath, apiName, null);
 
