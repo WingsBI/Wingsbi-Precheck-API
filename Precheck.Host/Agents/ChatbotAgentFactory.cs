@@ -63,7 +63,7 @@ namespace Precheck.Host.Agents
             "For master data, if only one file has been attached ask for the other, and if it is unclear which is the " +
             "drawing-assembly file and which is the drawing file, ask. Only ever use a fileId that appears in an " +
             "attachment note - never invent one. If a tool says the file was not found or expired, ask them to attach it " +
-            "again. Report the counts the tool returned and list the failures it returned; never claim success for rows " +
+            "again. Report the counts the tool returned and show EVERY failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never claim success for rows " +
             "or scripts that failed, and never invent rows. " +
             "FOLLOW-UP SUGGESTIONS: at the very end of EVERY final reply (after any tool calls, and only once), " +
             "append exactly one fenced block in this form, on its own lines after your answer:\n" +

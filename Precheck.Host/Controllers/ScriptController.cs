@@ -57,6 +57,7 @@ namespace Precheck.Host.Controllers
             _logger.LogInformation("Request received for ScriptController:UploadExcel");
             try
             {
+
                 // Unique name so multiple users don't overwrite each other
                 var fileName = $"{Guid.NewGuid()}_uploaded.xlsx";
                 var savePath = Path.Combine(_uploadPath, fileName);
@@ -183,6 +184,7 @@ namespace Precheck.Host.Controllers
             _logger.LogInformation("Request received for ScriptController:UploadMasterDataExcel");
             try
             {
+
                 var fileName1 = $"{Guid.NewGuid()}_masterdata1.xlsx";
                 var fileName2 = $"{Guid.NewGuid()}_masterdata2.xlsx";
 

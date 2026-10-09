@@ -79,10 +79,10 @@ At the end the chatbot reports counts and lists failed rows (up to 30), for exam
 
 | User wants to… | Server tool called | Same logic as existing API | File type | Expected sheet layout |
 |---|---|---|---|---|
-| Import new Production Orders | `import_production_orders_from_excel` | `POST /api/ProductionOrder/Upload` | .xlsx / .xls | Row 1 = header. Columns in order: PO No, Project Code, Project Description, Item Code, Item Description, Start ID Number (e.g. `GA0153`), Quantity, MRIR No, MIN, Status, Build No, Snag Sheet No |
-| Update MIN / Status of existing Production Orders | `update_production_order_min_status_from_excel` | `POST /api/ProductionOrder/UpdateMinStatus` | .xlsx / .xls | Row 1 = header. PO No in column 1, MIN in column 9, Status in column 10 |
-| Make Precheck in bulk | `make_precheck_from_excel` | `POST /api/Precheck/MakePrecheckFromExcel` | .xlsx / .xls | Use the template from `GET /api/Precheck/BulkPrecheckTemplate`. Row 3 = header, data from row 4. Needs Drawing Number (col 2), Qty (6), Parent Drawing (7), ProductionOrderNumber (9), IdNumber (10), QRCodeNumber (11) |
-| Bulk Store In QR codes | `bulk_store_in_from_excel` | `POST /api/QRCode/BulkStoreInFromExcel` | .xlsx / .xls | Use the template from `GET /api/QRCode/BulkStoreInTemplate`. Row 1 = header (Sr. No. \| QrCodeNumber), QR codes in column 2 from row 2 |
+| Import new Production Orders | `import_production_orders_from_excel` | `POST /api/ProductionOrder/Upload` | .xlsx (.xls is not readable) | Row 1 = header. Columns in order: PO No, Project Code, Project Description, Item Code, Item Description, Start ID Number (e.g. `GA0153`), Quantity, MRIR No, MIN, Status, Build No, Snag Sheet No |
+| Update MIN / Status of existing Production Orders | `update_production_order_min_status_from_excel` | `POST /api/ProductionOrder/UpdateMinStatus` | .xlsx (.xls is not readable) | Row 1 = header. PO No in column 1, MIN in column 9, Status in column 10 |
+| Make Precheck in bulk | `make_precheck_from_excel` | `POST /api/Precheck/MakePrecheckFromExcel` | .xlsx (.xls is not readable) | Use the template from `GET /api/Precheck/BulkPrecheckTemplate`. Row 3 = header, data from row 4. Needs Drawing Number (col 2), Qty (6), Parent Drawing (7), ProductionOrderNumber (9), IdNumber (10), QRCodeNumber (11) |
+| Bulk Store In QR codes | `bulk_store_in_from_excel` | `POST /api/QRCode/BulkStoreInFromExcel` | .xlsx (.xls is not readable) | Use the template from `GET /api/QRCode/BulkStoreInTemplate`. Row 1 = header (Sr. No. \| QrCodeNumber), QR codes in column 2 from row 2 |
 | Generate standard QR codes | `run_standard_qr_generation_from_excel` | `POST /api/Script/UploadExcel` then `POST /api/Script/RunSTDQRGeneration` | **.xlsx only** | Template: `GET /api/Script/DownloadTemplate/stdqrgeneration` |
 | Import QR codes with IR/MSN | `run_qr_code_import_from_excel` | `POST /api/Script/UploadExcel` then `POST /api/Script/RunQRCodeImport` | **.xlsx only** | Template: `GET /api/Script/DownloadTemplate/qrcodeimport` |
 | Upload master data | `run_master_data_upload` | `POST /api/Script/UploadMasterDataExcel` then `POST /api/Script/RunMasterData` | **.xlsx only, TWO files** | File 1 (drawing-assembly): `.../DownloadTemplate/masterdata1`. File 2 (drawing): `.../DownloadTemplate/masterdata2` |
@@ -94,11 +94,27 @@ The "Same logic as existing API" column is for reference only. The chat flow doe
 - **Expiry:** an uploaded file is kept for about 2 hours and is deleted once an action has used it. If the chatbot says the file was not found or expired, ask the user to attach it again (upload again and send the new note).
 - **One file, one action:** each file is consumed by the action. To run a second action on the same data, the user attaches the file again.
 - **Script actions and master data:** these run an external program and can take several minutes (the server stops them after 10 minutes). Show a loading state in the chat while waiting.
-- **`.xls` files:** accepted by the upload endpoint, but the three script actions (standard QR, QR import, master data) need `.xlsx`. The chatbot tells the user if they attached `.xls`.
+- **`.xls` files:** the upload endpoint accepts them, but the server can only read `.xlsx` content, so an `.xls` file will fail when processed. Steer users to `.xlsx`.
 - **Templates:** offer the template download links from section 5 next to the attach button so users start with the right layout.
 - **Validation:** do a light client-side check (extension and 10 MB) to give instant feedback. The server validates again.
 
-## 7. Example end-to-end
+## 7. Errors in the file
+
+The import itself checks every row and reports what is wrong, using the same messages as the existing upload APIs. In chat, the chatbot shows those messages to the user as a list, exactly as the API words them, and tells the user to correct those rows and attach the file again.
+
+The frontend does nothing extra: the errors arrive as normal chat messages. Examples of what the user may see:
+
+> Imported 18 of 20 rows.
+> - Row 'PO-1007': Invalid Start ID format: '153GA'
+> - Row 'PO-1012': Production Order already exists
+
+Notes:
+- At most 30 failed rows are listed per run; the chatbot is told how many more were not shown.
+- A whole-file problem (for example "No data rows found") is shown as a single message.
+- Rows that failed are not imported; rows that passed are. To retry, the user fixes only the failed rows, saves the file and attaches it again (a new upload and a new `fileId`).
+- For the script actions (standard QR, QR import, master data) the chatbot shows the script's own output, including any errors it printed.
+
+## 8. Example end-to-end
 
 1. User attaches `po_update.xlsx`.
 2. Frontend: `POST /api/Chatbot/UploadFile` (form field `file`) returns `fileId: 9c1d...`.
