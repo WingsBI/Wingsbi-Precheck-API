@@ -18,5 +18,7 @@ namespace Precheck.Service.Service.AuthService
 
         Task<bool> ResetAsync(ResetRequest request);
 
+        Task LogoutAsync(int userId);
+
        }
 }

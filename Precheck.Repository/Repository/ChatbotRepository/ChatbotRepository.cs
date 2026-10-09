@@ -78,6 +78,23 @@ namespace Precheck.Repository.Repository.ChatbotRepository
             }
         }
 
+        public async Task<List<ChatSessionRecord>> GetLastSessionMessagesAsync(int sessionId, int userId, int count)
+        {
+            try
+            {
+                var results = await _db.GetAll<ChatSessionRecord>(
+                    ChatbotQueries.GET_LAST_SESSION_MESSAGES,
+                    new { SessionId = sessionId, UserId = userId, Count = count });
+
+                return results.ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching last messages for SessionId: {SessionId}", sessionId);
+                throw;
+            }
+        }
+
         public async Task<List<ChatSessionRecord>> GetPreviousSessionHistoryAsync(int userId, int beforeSessionId, int? cursor, int pageSize)
         {
             try

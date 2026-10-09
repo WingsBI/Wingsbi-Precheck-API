@@ -25,6 +25,7 @@ namespace Precheck.Repository.Repository.UserRepository
 
         Task<User?> GetUserByIdAsync(int userId);
         Task UpdateRefreshTokenAsync(RefreshToken refreshToken);
+        Task RevokeUserRefreshTokensAsync(int userId);
         Task AddUserRoleAsync(UserRole userRole);
         Task<RefreshToken> GetRefreshTokenAsync(string refreshToken);
         Task<User> GetUserByUserIdAsync(string userid);

@@ -9,6 +9,7 @@ namespace Precheck.Service.Service.ChatbotService
         Task<bool> SessionBelongsToUserAsync(int sessionId, int userId);
         Task AddHistoryAsync(int userId, int sessionId, string request, string response);
         Task<List<ChatSessionRecord>> GetHistoryAsync(int sessionId);
+        Task<SessionMessagesResponseDto?> GetSessionBySessionIdAsync(int sessionId, int userId, int count);
         Task<PreviousConversationsResponseDto> GetPreviousConversationsAsync(int userId, int? currentSessionId, int? cursor, int pageSize);
     }
 }

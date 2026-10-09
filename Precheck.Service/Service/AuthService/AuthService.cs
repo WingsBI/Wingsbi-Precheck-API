@@ -89,6 +89,13 @@ namespace Precheck.Service.Service.AuthService
             }
         }
 
+        public async Task LogoutAsync(int userId)
+        {
+            _logger.LogInformation("Logout request received for user: {UserId}", userId);
+            await _userRepository.RevokeUserRefreshTokensAsync(userId);
+            _logger.LogInformation("Logout successful for user: {UserId}", userId);
+        }
+
         public async Task<bool> ResetAsync(ResetRequest request)
         {
             _logger.LogInformation("Reset request received for UserId: {UserId}", request.UserId);

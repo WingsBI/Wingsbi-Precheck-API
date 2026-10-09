@@ -1,4 +1,6 @@
+using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Dapper;
+using Precheck.Agent;
 using Precheck.Repository.Database;
 using Precheck.Repository.Repository.ArchiveRepository;
 using Precheck.Repository.Repository.CommonRepository;
@@ -192,6 +194,8 @@ builder.Services.AddScoped<IDrawingNumberService, DrawingNumberService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
 builder.Services.AddScoped<ITestingService, TestingService>();
 builder.Services.AddScoped<IHelperService, HelperService>();
+builder.Services.AddScoped<Precheck.Repository.Repository.AnalyticsRepository.IAnalyticsRepository, Precheck.Repository.Repository.AnalyticsRepository.AnalyticsRepository>();
+builder.Services.AddScoped<Precheck.Service.Service.AnalyticsService.IAnalyticsService, Precheck.Service.Service.AnalyticsService.AnalyticsService>();
 // Register Backup Archive Service (only archive service needed)
 builder.Services.AddScoped<IBackupArchiveService, BackupArchiveService>();
 // Production Order Import
@@ -201,6 +205,15 @@ builder.Services.AddScoped<Precheck.Service.Service.ProductionOrderService.IProd
 builder.Services.AddScoped<Precheck.Repository.Repository.ChatbotRepository.IChatbotRepository, Precheck.Repository.Repository.ChatbotRepository.ChatbotRepository>();
 builder.Services.AddScoped<Precheck.Service.Service.ChatbotService.IChatbotService, Precheck.Service.Service.ChatbotService.ChatbotService>();
 builder.Services.AddScoped<Precheck.Host.Agents.ChatbotTools>();
+builder.Services.AddScoped<Precheck.Host.Agents.ChatbotAgentFactory>();
+
+// AI agent history, turn saving and follow-up questions - see the Precheck.Agent project
+builder.Services.AddCopilotAgent<Precheck.Host.Agents.SuggestedQuestionsProvider>();
+
+// CopilotKit / AG-UI: MapAGUIServer needs one agent instance at startup, so it gets a RequestScopedAgent
+// that builds the real (per-user) chatbot agent from the current request on every call.
+builder.Services.AddAGUIServer();
+
 // Cache
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICacheService, CacheService>();
@@ -296,5 +309,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapAGUIServer("/api/copilot", new Precheck.Host.Agents.RequestScopedAgent(
+    app.Services.GetRequiredService<IHttpContextAccessor>(), "precheck-chatbot")).RequireAuthorization();
 
 app.Run();

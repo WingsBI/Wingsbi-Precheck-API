@@ -8,6 +8,23 @@ namespace Precheck.Models.DTOs.Chatbot
         public DateTime CreatedDate { get; set; }
     }
 
+    public class GetSessionRequestDto
+    {
+        // A Guid (AG-UI / Copilot sessions) or a numeric id (legacy int sessions), sent as a string.
+        public string SessionId { get; set; } = string.Empty;
+    }
+
+    public class SessionMessagesResponseDto
+    {
+        // The session these messages belong to. For a Copilot (Guid) session it is the same id that was
+        // requested, so the frontend keeps using it to continue the chat.
+        public string SessionId { get; set; } = string.Empty;
+        // Legacy (numeric) sessions only: fresh session id for the frontend to store; null for Guid sessions.
+        public int? NewSessionId { get; set; }
+        // Oldest first.
+        public List<ChatSessionItemDto> Messages { get; set; } = new();
+    }
+
     public class PreviousConversationsResponseDto
     {
         // Oldest first, so the client can render them in chronological order.

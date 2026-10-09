@@ -87,13 +87,19 @@ namespace Precheck.Repository.Queries
             SET token = @Token, expirydate = @ExpiryDate, modifieddate = @ModifiedDate 
             WHERE id = @Id";
 
+        // Deactivate all active refresh tokens of a user (logout)
+        public static readonly string REVOKE_USER_REFRESH_TOKENS_QUERY = @"
+            UPDATE tbl_userrefreshtokens
+            SET isactive = 0
+            WHERE userid = @UserId AND isactive = 1";
+
         // Check if username exists
         public static readonly string CHECK_USERNAME_EXISTS_QUERY = @"
           SELECT u.id, u.username, u.userid, u.passwordhash, u.securitystamp,u.userroleid,u.plantid,u.email, ur.role,u.departmentid , dept.name as departmentname, u.approvedBy as ApprovedBy, u.isactive
              FROM tbl_users u
              inner join tbl_userroles ur on u.userroleid = ur.id
              inner join tbl_department dept on u.departmentid = dept.id
-             WHERE u.userid =  @userid AND u.isactive = 1";
+             WHERE (u.userid = @userid OR u.email = @userid) AND u.isactive = 1";
 
         // Check if email exists
         public static readonly string CHECK_EMAIL_EXISTS_QUERY = @"
