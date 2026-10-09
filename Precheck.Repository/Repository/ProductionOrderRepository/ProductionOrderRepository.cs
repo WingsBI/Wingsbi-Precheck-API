@@ -745,6 +745,21 @@ namespace Precheck.Repository.Repository.ProductionOrderRepository
             }
         }
 
+        // Which of these Production Order numbers already exist (same active-PO rule the MIN/Status update uses).
+        // Chunked so a large sheet stays under SQL Server's parameter limit.
+        public async Task<HashSet<string>> GetExistingProductionOrderNumbersAsync(IEnumerable<string> poNumbers)
+        {
+            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            const string query = "SELECT productionordernumber FROM tbl_productionordermaster WHERE productionordernumber IN @PoNumbers AND isactive = 1";
+
+            foreach (var chunk in poNumbers.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().Chunk(1000))
+            {
+                var found = await _db.GetAll<string>(query, new { PoNumbers = chunk });
+                foreach (var po in found ?? new List<string>()) existing.Add(po);
+            }
+            return existing;
+        }
+
         public async Task<MinStatusUploadResultDto> UpdateMinStatusAsync(List<MinStatusUploadRowDto> poList)
         {
             var result = new MinStatusUploadResultDto();

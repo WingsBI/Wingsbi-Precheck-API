@@ -13,6 +13,20 @@ namespace Precheck.Models.DTOs.Chatbot
         public string Message { get; set; } = string.Empty;
     }
 
+    // Result of process_attached_excel_file: what the file was detected as and what was done with it.
+    // When NeedsUserChoice is true (or the file can't be used yet) nothing was run - Message says why and
+    // Options lists what the user can pick from.
+    public class AutoProcessResultDto
+    {
+        public string DetectedType { get; set; } = string.Empty;
+        public string Action { get; set; } = string.Empty;
+        public bool NeedsUserChoice { get; set; }
+        public List<string> Options { get; set; } = new();
+        public ExcelImportSummaryDto? ImportResult { get; set; }
+        public ScriptRunSummaryDto? ScriptResult { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
     // Chat-sized result of running an external Excel script (success is decided by its exit code).
     public class ScriptRunSummaryDto
     {

@@ -246,5 +246,174 @@ namespace Precheck.Host.Agents
                 _uploads.Delete(path2);
             }
         }
+
+        private const string KnownTemplates =
+            "Production Order template (import POs / update MIN-Status), Precheck BOM template, Bulk Store In template, " +
+            "QR code sample (standard QR / QR import), Master data drawing-assembly and drawing files.";
+
+        [Description("PREFERRED first step for an attached Excel file: work out what the file is from its layout and run the " +
+            "right action straight away - no need to ask the user what to do. Detects: Production Order sheet (imports new " +
+            "POs, or updates MIN/Status when those POs already exist), Precheck BOM sheet (bulk precheck), Bulk Store In " +
+            "sheet, QR code sample (QR import), and the two Master data files (needs both). If the result says " +
+            "NeedsUserChoice or the file can't be used yet, nothing was run: relay its Message/Options and ask the user, " +
+            "then call the specific tool for their choice.")]
+        public async Task<AutoProcessResultDto> ProcessAttachedExcelFileAsync(
+            [Description("The fileId from the attached-file note in the user's message.")] string fileId,
+            [Description("Only for Master data, which needs TWO files: the fileId of the other master data file " +
+                "(attached in the same message or earlier in this conversation). Omit otherwise.")] string? otherFileId)
+        {
+            var userId = CurrentUserId();
+            var path = _uploads.Resolve(fileId, userId, xlsxOnly: false, out var error);
+            if (path == null) return new AutoProcessResultDto { Message = error! };
+
+            var detection = await Task.Run(() => ExcelFileDetector.Detect(path));
+
+            switch (detection.Kind)
+            {
+                case ExcelFileKind.Unreadable:
+                    _uploads.Delete(path);
+                    return new AutoProcessResultDto
+                    {
+                        DetectedType = "Unreadable",
+                        Message = "The file could not be read as an Excel workbook - it may be corrupt, password-protected or an old .xls file. " +
+                                  "Ask the user to save it as .xlsx and attach it again."
+                    };
+
+                case ExcelFileKind.Unknown:
+                    _uploads.Delete(path);
+                    return new AutoProcessResultDto
+                    {
+                        DetectedType = "Unknown",
+                        Message = $"The file doesn't match any supported template. Supported: {KnownTemplates} " +
+                                  "Ask the user to use one of the templates and attach it again."
+                    };
+
+                case ExcelFileKind.Precheck:
+                    return new AutoProcessResultDto
+                    {
+                        DetectedType = "Precheck BOM sheet",
+                        Action = "Make Precheck from Excel",
+                        ImportResult = await MakePrecheckFromExcelAsync(fileId)
+                    };
+
+                case ExcelFileKind.BulkStoreIn:
+                    return new AutoProcessResultDto
+                    {
+                        DetectedType = "Bulk Store In sheet",
+                        Action = "Bulk Store In",
+                        ImportResult = await BulkStoreInFromExcelAsync(fileId)
+                    };
+
+                case ExcelFileKind.QrScript:
+                    return new AutoProcessResultDto
+                    {
+                        DetectedType = "QR code sheet",
+                        Action = "QR Code Import",
+                        ScriptResult = await RunQrCodeImportAsync(fileId)
+                    };
+
+                case ExcelFileKind.ProductionOrderSheet:
+                    return await ProcessProductionOrderSheetAsync(fileId, detection.ProductionOrderRows);
+
+                default:
+                    return await ProcessMasterDataFileAsync(fileId, otherFileId, detection.Kind, userId);
+            }
+        }
+
+        // The same template is used to import new POs and to update MIN/Status of existing ones, so the data decides:
+        // no PO number exists yet -> import; every row (PO + series + Start ID) already exists -> update; anything in
+        // between could be either, so the user is asked.
+        private async Task<AutoProcessResultDto> ProcessProductionOrderSheetAsync(string fileId, List<(string Po, string StartId)> rows)
+        {
+            const string detected = "Production Order sheet";
+            if (rows.Count == 0)
+            {
+                return new AutoProcessResultDto
+                {
+                    DetectedType = detected,
+                    Message = "The Production Order sheet has no data rows (Production Order numbers start at row 2)."
+                };
+            }
+
+            var existingNumbers = await _productionOrderService.GetExistingProductionOrderNumbersAsync(rows.Select(r => r.Po));
+            if (existingNumbers.Count == 0)
+            {
+                return new AutoProcessResultDto
+                {
+                    DetectedType = detected,
+                    Action = "Import Production Orders (none of the POs exist yet)",
+                    ImportResult = await ImportProductionOrdersFromExcelAsync(fileId)
+                };
+            }
+
+            var exactMatches = await _productionOrderService.CountExistingProductionOrderRowsAsync(rows);
+            if (exactMatches == rows.Count)
+            {
+                return new AutoProcessResultDto
+                {
+                    DetectedType = detected,
+                    Action = "Update MIN/Status (every PO in the file already exists)",
+                    ImportResult = await UpdateProductionOrderMinStatusFromExcelAsync(fileId)
+                };
+            }
+
+            return new AutoProcessResultDto
+            {
+                DetectedType = detected,
+                NeedsUserChoice = true,
+                Options = new List<string> { "Import new Production Orders", "Update MIN/Status of existing Production Orders" },
+                Message = $"This Production Order sheet could be either action: {existingNumbers.Count} of its " +
+                          $"{rows.Select(r => r.Po).Distinct(StringComparer.OrdinalIgnoreCase).Count()} PO numbers already exist " +
+                          $"({exactMatches} of {rows.Count} rows exist exactly), so it is a mix. Nothing was run. " +
+                          "Ask the user which action they want, then call the matching tool with this fileId."
+            };
+        }
+
+        // Master data needs both files. The first call (one file) only reports what is missing; once the other file
+        // is supplied the pair is checked (one assembly + one drawing file) and the script is run.
+        private async Task<AutoProcessResultDto> ProcessMasterDataFileAsync(string fileId, string? otherFileId, ExcelFileKind kind, int userId)
+        {
+            var thisIsAssembly = kind == ExcelFileKind.MasterDataAssembly;
+            var thisName = thisIsAssembly ? "drawing-assembly" : "drawing";
+            var missingName = thisIsAssembly ? "drawing" : "drawing-assembly";
+            var detected = $"Master data ({thisName} file)";
+
+            if (string.IsNullOrWhiteSpace(otherFileId))
+            {
+                return new AutoProcessResultDto
+                {
+                    DetectedType = detected,
+                    Message = $"This is the master data {thisName} file. Master data needs TWO files and nothing was run yet - " +
+                              $"ask the user to attach the {missingName} file, then call this tool again with this file's fileId " +
+                              "and the new file's fileId as otherFileId."
+                };
+            }
+
+            var otherPath = _uploads.Resolve(otherFileId, userId, xlsxOnly: false, out var otherError);
+            if (otherPath == null)
+                return new AutoProcessResultDto { DetectedType = detected, Message = $"The other file: {otherError}" };
+
+            var other = await Task.Run(() => ExcelFileDetector.Detect(otherPath));
+            var complementary = (kind == ExcelFileKind.MasterDataAssembly && other.Kind == ExcelFileKind.MasterDataDrawing) ||
+                                (kind == ExcelFileKind.MasterDataDrawing && other.Kind == ExcelFileKind.MasterDataAssembly);
+            if (!complementary)
+            {
+                return new AutoProcessResultDto
+                {
+                    DetectedType = detected,
+                    Message = $"The first file is the master data {thisName} file, but the other file is not the {missingName} file " +
+                              $"(it was detected as: {other.Kind}). Nothing was run. Ask the user to attach the correct {missingName} file."
+                };
+            }
+
+            return new AutoProcessResultDto
+            {
+                DetectedType = "Master data (drawing-assembly + drawing files)",
+                Action = "Master Data Upload",
+                ScriptResult = await RunMasterDataAsync(
+                    drawingAssemblyFileId: thisIsAssembly ? fileId : otherFileId,
+                    drawingFileId: thisIsAssembly ? otherFileId : fileId)
+            };
+        }
     }
 }

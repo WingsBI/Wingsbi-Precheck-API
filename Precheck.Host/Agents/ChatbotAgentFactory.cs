@@ -51,20 +51,23 @@ namespace Precheck.Host.Agents
             "non-conforming one; if the user wants to reject/replace a component, tell them that capability isn't " +
             "available yet rather than attempting it. " +
             "EXCEL FILE ATTACHMENTS: a user message may contain an attachment note like [Attached file \"x.xlsx\" - " +
-            "fileId: <id>]. When you see a NEW attachment, do NOT call any tool and do NOT guess what the file is for - " +
-            "reply by asking what they want to do with it, offering these options: (1) import new Production Orders; " +
-            "(2) update MIN/Status of existing Production Orders; (3) make Precheck in bulk (BOM sheet with QR codes); " +
-            "(4) bulk Store In QR codes; (5) generate standard QR codes; (6) import QR codes with IR/MSN numbers; " +
-            "(7) upload master data (needs TWO files: a drawing-assembly file and a drawing file). Once they answer, call " +
-            "exactly the matching tool (import_production_orders_from_excel, update_production_order_min_status_from_excel, " +
-            "make_precheck_from_excel, bulk_store_in_from_excel, run_standard_qr_generation_from_excel, " +
-            "run_qr_code_import_from_excel, run_master_data_upload) with that file's fileId - no extra confirmation is " +
-            "needed because their answer is the instruction. If the answer is ambiguous, ask again instead of choosing. " +
-            "For master data, if only one file has been attached ask for the other, and if it is unclear which is the " +
-            "drawing-assembly file and which is the drawing file, ask. Only ever use a fileId that appears in an " +
-            "attachment note - never invent one. If a tool says the file was not found or expired, ask them to attach it " +
-            "again. Report the counts the tool returned and show EVERY failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never claim success for rows " +
-            "or scripts that failed, and never invent rows. " +
+            "fileId: <id>]. When you see a NEW attachment, do NOT ask what to do with it - immediately call " +
+            "process_attached_excel_file with that fileId; it recognises the file from its layout and runs the right " +
+            "action (production order import or MIN/Status update, bulk precheck, bulk store in, QR code import, master " +
+            "data). Start your reply with what it detected and did (its DetectedType and Action). If several attachment " +
+            "notes arrive together, call it once per file - but master data needs TWO files, so pass the second master " +
+            "data file's fileId as otherFileId (also when the other file was attached earlier in the conversation). If the " +
+            "result has NeedsUserChoice=true, or says the file could not be used yet, nothing was run: tell the user why " +
+            "using the result's Message, offer its Options, and once they answer call the specific tool " +
+            "(import_production_orders_from_excel, update_production_order_min_status_from_excel, make_precheck_from_excel, " +
+            "bulk_store_in_from_excel, run_standard_qr_generation_from_excel, run_qr_code_import_from_excel, " +
+            "run_master_data_upload) with that fileId - their answer is the instruction, no extra confirmation. If the " +
+            "user explicitly says what to do with the file in the same message, call that specific tool directly instead. " +
+            "Only ever use a fileId that appears in an attachment note - never invent one. If a tool says the file was " +
+            "not found or expired, ask them to attach it again. Report the counts the tool returned and show EVERY " +
+            "failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is " +
+            "wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never " +
+            "claim success for rows or scripts that failed, and never invent rows. " +
             "FOLLOW-UP SUGGESTIONS: at the very end of EVERY final reply (after any tool calls, and only once), " +
             "append exactly one fenced block in this form, on its own lines after your answer:\n" +
             "```suggestions\n[\"first request\", \"second request\", \"third request\"]\n```\n" +
@@ -141,6 +144,7 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.CreateStandardMsnNumberAsync, name: "create_standard_msn_number"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),
+                AIFunctionFactory.Create(_fileTools.ProcessAttachedExcelFileAsync, name: "process_attached_excel_file"),
                 AIFunctionFactory.Create(_fileTools.ImportProductionOrdersFromExcelAsync, name: "import_production_orders_from_excel"),
                 AIFunctionFactory.Create(_fileTools.UpdateProductionOrderMinStatusFromExcelAsync, name: "update_production_order_min_status_from_excel"),
                 AIFunctionFactory.Create(_fileTools.MakePrecheckFromExcelAsync, name: "make_precheck_from_excel"),

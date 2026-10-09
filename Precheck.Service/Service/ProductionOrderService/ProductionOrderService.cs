@@ -780,6 +780,33 @@ namespace Precheck.Service.Service.ProductionOrderService
             }
         }
 
+        // How many (PO number, Start ID) rows already exist exactly as the import would see them (same PO number +
+        // production series + start ID). Rows whose Start ID can't be parsed or whose series is unknown count as not existing.
+        public async Task<int> CountExistingProductionOrderRowsAsync(IEnumerable<(string ProductionOrderNumber, string StartId)> rows)
+        {
+            var seriesByPrefix = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            var count = 0;
+
+            foreach (var (po, startId) in rows)
+            {
+                var (prefix, startNo) = ParseStartIdNumber(startId);
+                if (prefix == null || startNo == null) continue;
+
+                if (!seriesByPrefix.TryGetValue(prefix, out var seriesId))
+                {
+                    (seriesId, _) = await _productionOrderRepository.LookupProdSeriesByPrefixAsync(prefix);
+                    seriesByPrefix[prefix] = seriesId;
+                }
+                if (seriesId == null) continue;
+
+                if (await _productionOrderRepository.CheckPOExistsAsync(po, seriesId.Value, startNo.Value)) count++;
+            }
+            return count;
+        }
+
+        public Task<HashSet<string>> GetExistingProductionOrderNumbersAsync(IEnumerable<string> poNumbers)
+            => _productionOrderRepository.GetExistingProductionOrderNumbersAsync(poNumbers);
+
         public async Task<MinStatusUploadResultDto> UploadMinStatusExcelAsync(Stream fileStream, int updatedBy)
         {
             var result = new MinStatusUploadResultDto();
