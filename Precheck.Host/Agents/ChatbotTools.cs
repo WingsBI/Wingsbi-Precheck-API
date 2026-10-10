@@ -227,6 +227,18 @@ namespace Precheck.Host.Agents
             }).ToList();
         }
 
+        [Description("List the inspection Stages available for IR (Inspection Report) numbers - the same list the IR number " +
+            "screen offers. Call this BEFORE asking the user for the stage when creating an IR number (Manufacturing or " +
+            "Purchase Item), and show the user the list to pick from.")]
+        public async Task<List<string>> GetIrStagesAsync()
+            => (await _commonService.GetIRStagesService()).Select(s => s.StageName).Distinct().ToList();
+
+        [Description("List the Stages available for MSN (Memo Stage Number) numbers - the same list the MSN number screen " +
+            "offers. Call this BEFORE asking the user for the stage when creating an MSN number (Manufacturing or Purchase " +
+            "Item), and show the user the list to pick from.")]
+        public async Task<List<string>> GetMsnStagesAsync()
+            => (await _commonService.GetMSNStagesService()).Select(s => s.StageName).Distinct().ToList();
+
         // ---- Store domain: Precheck ----
 
         // get_precheck_status (removed) used to wrap IPrecheckService.GetPrecheckStatusDetailsService,

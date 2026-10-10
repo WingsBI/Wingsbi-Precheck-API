@@ -31,7 +31,9 @@ namespace Precheck.Host.Agents
             "time if missing (Production/Purchase Order number first, then ID number(s), then Stage; for a Production " +
             "Order, once you have its number call get_production_order_id_numbers before asking for ID number(s) and " +
             "offer only its real StartIdNumber-EndIdNumber range (ignore its QR-code fields here) - never invent example " +
-            "ID numbers; Quantity/Build " +
+            "ID numbers; when you reach the Stage, FIRST call get_ir_stages (for IR numbers) or get_msn_stages (for MSN " +
+            "numbers) and show the user the full list to pick from - never ask for a stage without showing the list, and " +
+            "never invent stage names; Quantity/Build " +
             "No./Operation Number/Remark are optional for the Manufacturing Item flow). After a Production Order " +
             "number is given, the Part Number, Item Code, Production Series and Project No. are auto-filled - do not " +
             "ask the user for them. ALWAYS call the relevant create_* tool with confirmed=false first, show the user " +
@@ -153,6 +155,8 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.GetQrCodeDetailsAsync, name: "get_qr_code_details"),
                 AIFunctionFactory.Create(_tools.GetStandardQrCodeDetailsAsync, name: "get_standard_qr_code_details"),
                 AIFunctionFactory.Create(_tools.SearchQrCodesAsync, name: "search_qr_codes"),
+                AIFunctionFactory.Create(_tools.GetIrStagesAsync, name: "get_ir_stages"),
+                AIFunctionFactory.Create(_tools.GetMsnStagesAsync, name: "get_msn_stages"),
                 AIFunctionFactory.Create(_tools.GetIrNumbersAsync, name: "get_ir_numbers"),
                 AIFunctionFactory.Create(_tools.GetMsnNumbersAsync, name: "get_msn_numbers"),
                 AIFunctionFactory.Create(_tools.GetPendingPrechecksAsync, name: "get_pending_prechecks"),
