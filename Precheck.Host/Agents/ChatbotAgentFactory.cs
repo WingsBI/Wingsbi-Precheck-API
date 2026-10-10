@@ -41,8 +41,29 @@ namespace Precheck.Host.Agents
             "'go ahead', 'confirm') in their most recent message - never set confirmed=true otherwise. Never fabricate " +
             "a generated IR/MSN number yourself - only report the number a tool actually returned. " +
             "You can also GENERATE QR CODES using create_qr_code, for Manufacturing Item components identified by " +
-            "Production Order number and Component Type (ID, FIM, SI, or BATCH). QR FLOW - follow these steps in order: " +
-            "(1) if the Production Order number is missing, ask for it (nothing else yet). (2) As soon as you have it, " +
+            "Component Type (ID, FIM, SI, or BATCH). A Production Order number is needed ONLY for 'ID' components " +
+            "(their ID numbers come from the order's range); FIM, SI and BATCH components are created directly from a " +
+            "DRAWING NUMBER + Production Series + quantity with NO Production Order number - never insist on a Production " +
+            "Order number for them. QR FLOW - the goal is the FEWEST possible questions: " +
+            "(0) If the user just says they want to create a QR code, ask ONE short thing that offers BOTH options, in " +
+            "words like: \"Please provide the drawing/part number (for FIM, SI or BATCH components) or the Production " +
+            "Order number (for ID components).\" Leave the suggestions block OUT of that reply. Do NOT ask which " +
+            "component type it is and do not ask a drawing-or-PO either/or question. When you have a drawing number, call create_qr_code with just " +
+            "that drawingNumber - leave componentType, productionSeries and the unit empty: the tool reads the component " +
+            "type, Production Series and unit from the drawing's own master data, so NEVER ask the user for any of them. " +
+            "Always pass along every value the user has already given (quantity, IR number, MSN number, remark ...) in " +
+            "the same call, and never ask for something the user already told you. " +
+            "Only if the drawing has several series (the tool then lists just those) ask which one. If the tool says it " +
+            "is an 'ID' component, tell the user the Production Order number is needed and ask for it. Otherwise (FIM, " +
+            "SI, BATCH) ask in ONE message for everything the tool lists as still needed: for each QR code the same " +
+            "fields as the QR code screen's table - Quantity (required), ID No, Size, MRIR and Heat/Lot/Batch No (the " +
+            "last four optional, the user may leave them blank) - plus the IR number and the MSN number, listing EVERY " +
+            "IR/MSN number the tool returns so the user can choose (never pick for them). Pass what they give as 'rows' " +
+            "(one entry per QR code: quantity, idNo, size, mrir, heatLotBatchNo); if they just give a quantity, that is " +
+            "one QR code with that quantity and the rest blank - do not ask for the optional fields a second time. " +
+            "Drawing-number QR codes are stored in automatically. If the user already gave a Production Order number, continue with the " +
+            "steps below. (1) For an 'ID' component, if the Production Order number is " +
+            "missing, ask for it (nothing else yet). (2) As soon as you have it, " +
             "call get_production_order_id_numbers BEFORE asking anything about ID numbers or quantity - it returns the ID " +
             "numbers that Production Order really covers (StartIdNumber-EndIdNumber), which of them already have a QR code, " +
             "and the drawing's mapped ComponentType (informational only - a PO that has an ID range can still have 'ID' " +
@@ -89,6 +110,16 @@ namespace Precheck.Host.Agents
             "failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is " +
             "wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never " +
             "claim success for rows or scripts that failed, and never invent rows. " +
+            "MATERIAL REQUISITIONS: a requisition is raised when a component is rejected at precheck. Its status moves " +
+            "Pending-Planner (planner reviews) -> Pending-Store (store handles) -> Completed; a cancelled one shows as " +
+            "'Request- Deleted'. Use get_material_requisitions (with its filters) to list them, " +
+            "get_material_requisition_details for one request number, and get_material_requisition_status_summary for " +
+            "counts per status (it includes cancelled ones). get_swapping_details answers swap questions. These are " +
+            "read-only: you cannot create, update, cancel or swap anything. " +
+            "CAN A QR CODE BE CONSUMED: when the user gives a QR code number and asks whether it can be consumed / used, " +
+            "or in which Production Order, call get_qr_code_consumption_options and answer with the Production Order " +
+            "numbers (and the ID numbers in each) it returns - not just the QR code's status. If it cannot be consumed, " +
+            "say why. " +
             "QR CODE COUNTS: for any question about how many QR codes are consumed/available/generated, or for a QR code " +
             "summary or overview, call get_qr_code_status_summary and answer from its counts (readyforconsumption means " +
             "available/in stock). To LIST consumed QR codes call get_consumed_qr_codes. Never use search_qr_codes for " +
@@ -105,6 +136,9 @@ namespace Precheck.Host.Agents
             "\"Find ...\", \"Get ...\" (e.g. \"Give me the precheck records for PO-2026-0026\", \"How many QR codes " +
             "are available?\", \"List the pending prechecks\"). Never address the user (no \"Do you want...\" / \"Would you like...\"), never suggest " +
             "something that needs an identifier the user hasn't given, and never mention this block in your text. " +
+            "Suggestions must NEVER contain made-up identifiers (drawing numbers, part numbers, Production Order numbers, " +
+            "QR code numbers, IR/MSN numbers): use only identifiers that appeared in the user's messages or in a tool " +
+            "result, and when you are asking the user for an identifier, omit the block. " +
             "Only suggest requests your tools can actually answer - never offer things like listing inspection stages or " +
             "which ID numbers already have IR/MSN numbers. Omit the block when you are asking the user for missing " +
             "information or asking them to confirm an action, unless you can offer REAL values taken from a tool result " +
@@ -164,6 +198,8 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.GetAvailableComponentsAsync, name: "get_available_components"),
                 AIFunctionFactory.Create(_tools.GetStoredInComponentsAsync, name: "get_stored_in_components"),
                 AIFunctionFactory.Create(_tools.GetMaterialRequisitionsAsync, name: "get_material_requisitions"),
+                AIFunctionFactory.Create(_tools.GetMaterialRequisitionDetailsAsync, name: "get_material_requisition_details"),
+                AIFunctionFactory.Create(_tools.GetMaterialRequisitionStatusSummaryAsync, name: "get_material_requisition_status_summary"),
                 AIFunctionFactory.Create(_tools.GetSwappingDetailsAsync, name: "get_swapping_details"),
                 AIFunctionFactory.Create(_tools.GetAvailableQrCodesAsync, name: "get_available_qr_codes"),
                 AIFunctionFactory.Create(_tools.GetPrecheckByPoSeriesIdAsync, name: "get_precheck_by_po_series_id"),
@@ -177,6 +213,7 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.GetProductionOrderIdNumbersAsync, name: "get_production_order_id_numbers"),
                 AIFunctionFactory.Create(_tools.GetQrCodeStatusSummaryAsync, name: "get_qr_code_status_summary"),
                 AIFunctionFactory.Create(_tools.GetConsumedQrCodesAsync, name: "get_consumed_qr_codes"),
+                AIFunctionFactory.Create(_tools.GetQrCodeConsumptionOptionsAsync, name: "get_qr_code_consumption_options"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),
                 AIFunctionFactory.Create(_fileTools.ProcessAttachedExcelFileAsync, name: "process_attached_excel_file"),

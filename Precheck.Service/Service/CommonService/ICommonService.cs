@@ -64,6 +64,7 @@ namespace Precheck.Service.Service.CommonService
         Task<ProductionOrderModel> ProductionOrderByNameService(string query);
 
         Task<List<UnitModel>> UnitByName();
+        Task<UnitModel?> GetUnitByDrawingNumberIdService(int drawingNumberId);
         Task<List<ShapeModel>> GetAllShapes();
         Task<List<string>> GetAllLnItemCode(string search = null);
 

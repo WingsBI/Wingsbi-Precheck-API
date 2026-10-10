@@ -248,6 +248,9 @@ namespace Precheck.Service.Service.CommonService
             }
         }
 
+        public Task<UnitModel?> GetUnitByDrawingNumberIdService(int drawingNumberId)
+            => _commonRepository.GetUnitByDrawingNumberId(drawingNumberId);
+
         public async Task<List<UnitModel>> UnitByName()
         {
             _logger.LogInformation("Starting UnitByName");

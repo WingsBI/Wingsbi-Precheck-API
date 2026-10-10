@@ -417,6 +417,17 @@ namespace Precheck.Repository.Repository.CommonRepository
             return results;
         }
 
+        // The drawing's own unit (tbl_drawingunitmapping): the same one a Production Order of that drawing uses.
+        public async Task<UnitModel?> GetUnitByDrawingNumberId(int drawingNumberId)
+        {
+            const string query = @"SELECT TOP 1 u.id, u.unitname
+                FROM tbl_drawingunitmapping m
+                INNER JOIN tbl_unit u ON u.id = m.unitid AND u.isactive = 1
+                WHERE m.drawingnumberid = @DrawingNumberId AND m.isactive = 1
+                ORDER BY m.id";
+            return await _db.GetSingle<UnitModel?>(query, new { DrawingNumberId = drawingNumberId });
+        }
+
         public async Task<List<UnitModel>> GetUnitByName()
         {
             _logger.LogInformation($"Request for CommonRepository:GetUnitByName");

@@ -42,6 +42,9 @@ namespace Precheck.Service.Service.MaterialRequisitionService
             }
         }
 
+        public Task<List<Precheck.Models.DTOs.Chatbot.StatusCountDto>> GetMaterialRequisitionStatusCounts()
+            => _materialRequisitionRepository.GetMaterialRequisitionStatusCountsAsync();
+
         public async Task<List<SwappingDetailsResponse>> GetSwappingDetails()
         {
             _logger.LogInformation("Request for MaterialRequisitionService:GetSwappingDetails");

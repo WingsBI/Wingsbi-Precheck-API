@@ -22,8 +22,14 @@ namespace Precheck.Agent
         private static bool EndsWithQuestion(string reply)
         {
             var lastLine = reply.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
-            return lastLine is not null && lastLine.EndsWith('?');
+            if (lastLine is null) return false;
+            return lastLine.EndsWith('?') || AsksForInput.IsMatch(lastLine);
         }
+
+        // "Please provide ...", "Reply with ...": a request for input even without a question mark.
+        private static readonly Regex AsksForInput = new(
+            @"\b(please (provide|reply|tell|choose|confirm|pick|specify|give)|reply with|let me know)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public static async IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
             IEnumerable<ChatMessage> messages,

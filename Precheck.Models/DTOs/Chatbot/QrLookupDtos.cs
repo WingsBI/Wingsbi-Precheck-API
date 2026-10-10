@@ -22,6 +22,34 @@ namespace Precheck.Models.DTOs.Chatbot
         public string Message { get; set; } = string.Empty;
     }
 
+    // Where a QR code can be consumed: the Production Orders (and their ID numbers) whose precheck still needs this
+    // QR code's component.
+    public class QrConsumptionOptionsDto
+    {
+        public string? QrCodeNumber { get; set; }
+        public string? QrCodeStatus { get; set; }
+        public string? DrawingNumber { get; set; }
+        public string? ProductionSeries { get; set; }
+        public string? ComponentType { get; set; }
+        public decimal? RemainingQuantity { get; set; }
+        public bool CanBeConsumed { get; set; }
+        public int ProductionOrderCount { get; set; }
+        // The assembly drawing(s) this component is part of: a Production Order for one of them is where it gets consumed.
+        public List<string> ParentAssemblies { get; set; } = new();
+        public List<QrConsumptionTargetDto> ConsumableIn { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
+
+    public class QrConsumptionTargetDto
+    {
+        public string? ProductionOrderNumber { get; set; }
+        // Compact ranges of the ID numbers in this Production Order that still need the component, e.g. "24-26, 28".
+        public string IdNumbers { get; set; } = string.Empty;
+        public int PendingLines { get; set; }
+        public decimal RequiredQuantity { get; set; }
+        public string? PrecheckStatus { get; set; }
+    }
+
     public class QrCodeStatusSummaryDto
     {
         public int TotalQrCodes { get; set; }

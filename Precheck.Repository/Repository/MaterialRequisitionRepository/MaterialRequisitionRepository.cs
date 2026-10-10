@@ -42,6 +42,18 @@ namespace Precheck.Repository.Repository.MaterialRequisitionRepository
             }
         }
 
+        // Requisition counts per status, cancelled ones included (they are inactive, so the normal list never shows them).
+        public async Task<List<Precheck.Models.DTOs.Chatbot.StatusCountDto>> GetMaterialRequisitionStatusCountsAsync()
+        {
+            const string query = @"SELECT ISNULL(status, 'unknown') AS Status, COUNT(*) AS Count
+                FROM tbl_material_requestion
+                GROUP BY ISNULL(status, 'unknown')
+                ORDER BY COUNT(*) DESC";
+
+            var results = await _db.GetAll<Precheck.Models.DTOs.Chatbot.StatusCountDto>(query, new { });
+            return results?.ToList() ?? new List<Precheck.Models.DTOs.Chatbot.StatusCountDto>();
+        }
+
         public async Task<List<SwappingDetailsResponse>> GetSwappingDetails()
         {
             _logger.LogInformation("Request for MaterialRequisitionRepository:GetSwappingDetails");

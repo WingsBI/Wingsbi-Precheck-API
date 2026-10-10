@@ -1,5 +1,15 @@
 namespace Precheck.Models.DTOs.Chatbot
 {
+    // One row of the QR code table (Sr.No | ID No | Quantity | Size | MRIR | Heat/Lot/Batch No) = one QR code.
+    public class QrRowInput
+    {
+        public string? IdNo { get; set; }
+        public decimal Quantity { get; set; }
+        public string? Size { get; set; }
+        public string? Mrir { get; set; }
+        public string? HeatLotBatchNo { get; set; }
+    }
+
     public class CreateQrCodeResponseDto
     {
         public bool Created { get; set; }
@@ -16,6 +26,8 @@ namespace Precheck.Models.DTOs.Chatbot
         public string? BuildNumber { get; set; }
         public string? OperationNumber { get; set; }
         public string? Remark { get; set; }
+        // Drawing-number (standard) generation: one entry per QR code, as on the QR code screen's table.
+        public List<QrRowInput>? Rows { get; set; }
         public List<string> GeneratedQrCodeNumbers { get; set; } = new();
         public List<string> AlreadyExistingQrCodeNumbers { get; set; } = new();
         public string Message { get; set; } = string.Empty;

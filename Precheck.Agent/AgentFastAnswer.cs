@@ -120,6 +120,10 @@ namespace Precheck.Agent
             @"\b(consumed|available|stored|generated|ready|expired|active|inactive|disabled|rejected|used)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex RequisitionStateWords = new(
+            @"\b(pending|completed?|cancel\w*|deleted|planner|store|rejected|overdue|older|days?|weeks?|since|before|after)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // Questions that need the model's judgement, or that do something other than read: never answered from a template.
         private static readonly Regex NeedsModel = new(
             @"\b(which|what are|why|explain|compare|versus|vs|trend|should|recommend\w*|summar\w*|insight|analy\w*|and|" +
@@ -155,6 +159,8 @@ namespace Precheck.Agent
             if (!Enabled || string.IsNullOrWhiteSpace(question) || !Rules.TryGetValue(toolName, out var rule)) return false;
             if (NeedsModel.IsMatch(question)) return false;
             if (toolName == "search_qr_codes" && QrStatusWords.IsMatch(question)) return false;
+            // A requisition question about a stage, age or cancellation can't be answered by counting the whole list.
+            if (toolName == "get_material_requisitions" && RequisitionStateWords.IsMatch(question)) return false;
 
             var isCount = CountQuestion.IsMatch(question);
             if (!isCount && !ListQuestion.IsMatch(question)) return false;
