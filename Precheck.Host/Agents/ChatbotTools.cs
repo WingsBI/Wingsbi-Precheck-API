@@ -182,7 +182,8 @@ namespace Precheck.Host.Agents
         // the "ByDrawingNumber" repository methods instead, which null-guard every filter (drawing
         // number, production series) and don't have that department requirement.
         [Description("List/filter IR numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
-            "At least one of drawingNumber or productionSeries should be provided.")]
+            "Both filters are optional: for a plain 'list the IR numbers' request call it with both omitted to get all of " +
+            "them - do not ask the user for a filter first.")]
         public async Task<List<IRNumberSummaryDto>> GetIrNumbersAsync(
             [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
             [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
@@ -204,7 +205,8 @@ namespace Precheck.Host.Agents
         }
 
         [Description("List/filter MSN numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
-            "At least one of drawingNumber or productionSeries should be provided.")]
+            "Both filters are optional: for a plain 'list the MSN numbers' request call it with both omitted to get all of " +
+            "them - do not ask the user for a filter first.")]
         public async Task<List<MSNNumberSummaryDto>> GetMsnNumbersAsync(
             [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
             [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
@@ -914,6 +916,120 @@ namespace Precheck.Host.Agents
             }
 
             return preview;
+        }
+
+        // ---- QR code ID numbers and status summary ----
+
+        // 24,25,27 -> "24-25, 27"
+        private static string ToRanges(IEnumerable<int> numbers)
+        {
+            var sorted = numbers.Distinct().OrderBy(n => n).ToList();
+            var parts = new List<string>();
+            for (var i = 0; i < sorted.Count; i++)
+            {
+                var start = sorted[i];
+                while (i + 1 < sorted.Count && sorted[i + 1] == sorted[i] + 1) i++;
+                parts.Add(sorted[i] == start ? start.ToString() : $"{start}-{sorted[i]}");
+            }
+            return string.Join(", ", parts);
+        }
+
+        [Description("Get the ID numbers a Production Order actually covers (start-end range) and which of them already have a " +
+            "QR code, so only real, still-available ID numbers are offered. ALWAYS call this as soon as you have a Production " +
+            "Order number and the user wants to generate QR codes (or asks which ID numbers a PO has) - BEFORE asking the " +
+            "user for ID numbers. Also returns the drawing's mapped ComponentType (informational: the user can still choose " +
+            "a different component type for QR generation).")]
+        public async Task<ProductionOrderIdNumbersDto> GetProductionOrderIdNumbersAsync(
+            [Description("The exact Production Order number.")] string productionOrderNumber)
+        {
+            var po = await _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
+            if (po == null)
+            {
+                return new ProductionOrderIdNumbersDto { Message = $"Production Order '{productionOrderNumber}' was not found." };
+            }
+
+            var result = new ProductionOrderIdNumbersDto
+            {
+                ProductionOrderNumber = po.ProductionOrderNumber,
+                ProductionSeries = po.ProductionSeries,
+                DrawingNumber = po.DrawingNumber,
+                ComponentType = po.ComponentType,
+                StartIdNumber = po.StartIdNumber,
+                EndIdNumber = po.EndIdNumber
+            };
+
+            if (po.StartIdNumber == null || po.EndIdNumber == null)
+            {
+                result.Message = $"Production Order '{productionOrderNumber}' has no ID number range.";
+                return result;
+            }
+
+            var start = po.StartIdNumber.Value;
+            var end = po.EndIdNumber.Value;
+            result.TotalIdNumbers = end - start + 1;
+
+            // Only ID numbers inside this PO's own range count; a QR for an ID outside it (stale data) is not this PO's.
+            var withQr = new List<int>();
+            if (po.DrawingNumberId != null && po.ProdSeriesId != null)
+            {
+                withQr = (await _qrCodeService.GetIdNumbersWithQrCodeService(productionOrderNumber, po.DrawingNumberId.Value, po.ProdSeriesId.Value))
+                    .Where(id => id >= start && id <= end)
+                    .Distinct()
+                    .ToList();
+            }
+
+            var withoutQr = Enumerable.Range(start, result.TotalIdNumbers).Except(withQr).ToList();
+            result.IdNumbersWithQrCode = ToRanges(withQr);
+            result.IdNumbersWithoutQrCode = ToRanges(withoutQr);
+            result.CountWithoutQrCode = withoutQr.Count;
+            result.Message = $"This Production Order covers ID numbers {start}-{end}. " +
+                (withQr.Count == 0
+                    ? "None of them has a QR code yet."
+                    : withoutQr.Count == 0
+                        ? "Every one of them already has a QR code."
+                        : $"ID numbers {result.IdNumbersWithQrCode} already have a QR code; {result.IdNumbersWithoutQrCode} do not.");
+            return result;
+        }
+
+        [Description("List QR codes that have been CONSUMED (used up in an assembly), optionally for one Production Order and/or a " +
+            "created-date range. Use this - not search_qr_codes, which only returns active QR codes - whenever the user asks " +
+            "to list or see consumed QR codes.")]
+        public async Task<List<QrCodeSummaryDto>> GetConsumedQrCodesAsync(
+            [Description("Exact Production Order number to filter by. Omit if not specified.")] string? productionOrderNumber,
+            [Description("Start of the created-date range. Omit if not specified.")] DateTime? fromDate,
+            [Description("End of the created-date range. Omit if not specified.")] DateTime? toDate)
+        {
+            var results = await _qrCodeService.GetConsumedQRCodeDetailsWithParameterService(new GetQRCodeRequestDto
+            {
+                ProductionOrderNumber = string.IsNullOrWhiteSpace(productionOrderNumber) ? null : productionOrderNumber,
+                FromDate = fromDate,
+                ToDate = toDate
+            });
+
+            return results.Select(r => new QrCodeSummaryDto
+            {
+                QrCodeNumber = r.QrCodeNumber,
+                QrCodeStatus = r.QrCodeStatus,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                RackLocation = r.RackLocation,
+                IdNumber = r.IdNumber,
+                ExpiryDate = r.ExpiryDate
+            }).ToList();
+        }
+
+        [Description("Get how many QR codes are in each status (readyforconsumption = available/in stock, consumed, " +
+            "qrcodegenerated = generated but not stored in yet) and the total. Use this for ANY question about QR code counts " +
+            "by status or a QR code summary/overview - e.g. 'how many QR codes are consumed', 'how many are available'. " +
+            "Consumed QR codes are inactive, so search_qr_codes can never return them - do not use it for these questions.")]
+        public async Task<QrCodeStatusSummaryDto> GetQrCodeStatusSummaryAsync()
+        {
+            var counts = await _qrCodeService.GetQrCodeStatusCountsService();
+            return new QrCodeStatusSummaryDto
+            {
+                TotalQrCodes = counts.Sum(c => c.Count),
+                ByStatus = counts,
+                Message = counts.Count == 0 ? "There are no QR codes." : string.Empty
+            };
         }
 
         // ---- Create QR Code (Manufacturing Item only - ID/FIM/SI/BATCH component types) ----

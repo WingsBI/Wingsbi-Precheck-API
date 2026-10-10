@@ -19,6 +19,12 @@ namespace Precheck.Agent
         private static readonly Regex SuggestionsBlock =
             new(@"\s*```suggestions\s*\[.*?\]\s*```\s*$", RegexOptions.Singleline | RegexOptions.Compiled);
 
+        private static bool EndsWithQuestion(string reply)
+        {
+            var lastLine = reply.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+            return lastLine is not null && lastLine.EndsWith('?');
+        }
+
         public static async IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
             IEnumerable<ChatMessage> messages,
             AgentSession? session,
@@ -28,7 +34,8 @@ namespace Precheck.Agent
             AgentTurnRecorder recorder,
             ISuggestedQuestionsProvider suggestedQuestions,
             [EnumeratorCancellation] CancellationToken cancellationToken,
-            ILogger? logger = null)
+            ILogger? logger = null,
+            int roleId = 0)
         {
             long input = 0, output = 0, cached = 0;
             int modelCalls = 0;
@@ -75,7 +82,7 @@ namespace Precheck.Agent
             // Plain count question: the loop ended right after the tool (see AgentFastAnswer), so write the sentence
             // here, with its follow-up chips, instead of paying for a second model call.
             if (reply.Length == 0 && toolCalls.Count == 1 && toolResults.TryGetValue(toolCalls[0].CallId, out var onlyResult) &&
-                AgentFastAnswer.TryBuild(toolCalls[0].Name, toolCalls[0].Arguments, onlyResult, AgentFastAnswer.LastUserText(received), out var fast))
+                AgentFastAnswer.TryBuild(toolCalls[0].Name, toolCalls[0].Arguments, onlyResult, AgentFastAnswer.LastUserText(received), out var fast, roleId))
             {
                 var fastText = $"{fast.Text}\n\n```suggestions\n{JsonSerializer.Serialize(fast.FollowUps)}\n```";
                 lastMessageId = Guid.NewGuid().ToString("N");
@@ -99,7 +106,10 @@ namespace Precheck.Agent
             // Fallback: if the model left the block out (and the reply wasn't a clarifying question), ask a
             // separate call for follow-ups. A second reply-time call is only made when needed.
             var question = received.LastOrDefault(m => m.Role == ChatRole.User)?.Text;
-            if (!match.Success && lastMessageId is not null && cleanReply.Length > 0 && !string.IsNullOrWhiteSpace(question))
+            // A reply that ends by asking the user something (an ID number, a confirmation ...) gets no generic chips:
+            // unrelated suggestions next to a question the user must answer are confusing.
+            if (!match.Success && lastMessageId is not null && cleanReply.Length > 0 && !string.IsNullOrWhiteSpace(question) &&
+                !EndsWithQuestion(cleanReply))
             {
                 var questions = await suggestedQuestions.GetAsync(question, cleanReply);
                 if (questions.Count > 0)

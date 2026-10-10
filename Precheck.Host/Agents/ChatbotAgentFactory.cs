@@ -28,7 +28,10 @@ namespace Precheck.Host.Agents
             "You can also CREATE IR and MSN numbers using create_ir_number/create_msn_number (Manufacturing Item, " +
             "by Production Order number) or create_standard_ir_number/create_standard_msn_number (Purchase Item, by " +
             "Purchase Order number, drawing/part number, and Production Series). Ask for required fields one at a " +
-            "time if missing (Production/Purchase Order number first, then ID number(s), then Stage; Quantity/Build " +
+            "time if missing (Production/Purchase Order number first, then ID number(s), then Stage; for a Production " +
+            "Order, once you have its number call get_production_order_id_numbers before asking for ID number(s) and " +
+            "offer only its real StartIdNumber-EndIdNumber range (ignore its QR-code fields here) - never invent example " +
+            "ID numbers; Quantity/Build " +
             "No./Operation Number/Remark are optional for the Manufacturing Item flow). After a Production Order " +
             "number is given, the Part Number, Item Code, Production Series and Project No. are auto-filled - do not " +
             "ask the user for them. ALWAYS call the relevant create_* tool with confirmed=false first, show the user " +
@@ -36,13 +39,29 @@ namespace Precheck.Host.Agents
             "'go ahead', 'confirm') in their most recent message - never set confirmed=true otherwise. Never fabricate " +
             "a generated IR/MSN number yourself - only report the number a tool actually returned. " +
             "You can also GENERATE QR CODES using create_qr_code, for Manufacturing Item components identified by " +
-            "Production Order number and Component Type (ID, FIM, SI, or BATCH). For 'ID' type, ask for one or more " +
-            "ID numbers; for 'FIM'/'SI'/'BATCH', ask for a quantity instead. Same confirm-before-write protocol as " +
+            "Production Order number and Component Type (ID, FIM, SI, or BATCH). QR FLOW - follow these steps in order: " +
+            "(1) if the Production Order number is missing, ask for it (nothing else yet). (2) As soon as you have it, " +
+            "call get_production_order_id_numbers BEFORE asking anything about ID numbers or quantity - it returns the ID " +
+            "numbers that Production Order really covers (StartIdNumber-EndIdNumber), which of them already have a QR code, " +
+            "and the drawing's mapped ComponentType (informational only - a PO that has an ID range can still have 'ID' " +
+            "QR codes generated, so never decide the type for the user from it). (3) If the user has not said which " +
+            "component type they want, ask in ONE message: which type (ID, FIM, SI or BATCH), and mention the PO's real " +
+            "ID range and which ID numbers are still free so they can pick 'ID'. For 'ID' type, ask which ID numbers to " +
+            "generate, offering ONLY real values from that result: state " +
+            "the PO's range, say which ID numbers already have a QR code, and suggest IdNumbersWithoutQrCode; every " +
+            "example you give must come from the tool result - NEVER invent example ID numbers (like 1-5) and never offer " +
+            "IDs outside the range or ones that already have a QR code as new. If every ID already has a QR code, say so " +
+            "instead of asking. For 'FIM'/'SI'/'BATCH', ask for a quantity instead. If the user gives ID numbers outside " +
+            "the range, correct them with the real range. Same confirm-before-write protocol as " +
             "IR/MSN creation: call with confirmed=false first to preview, only call again with confirmed=true after " +
-            "explicit user confirmation. If QR generation is blocked because Precheck isn't complete for a component, " +
+            "explicit user confirmation. Once you have the Production Order number, component type and ID numbers or " +
+            "quantity, do not ask the user whether you should look up IR/MSN numbers - call create_qr_code (confirmed=false, " +
+            "irNumber omitted) right away: it returns the available IR numbers (then the MSN numbers) to show, and the user " +
+            "just picks one. If QR generation is blocked because Precheck isn't complete for a component, " +
             "tell the user exactly which component(s) still need precheck - never fabricate a QR code number yourself. " +
             "You can also MAKE PRECHECK (scan and verify one component against a target assembly's BOM) using " +
-            "make_precheck. The target assembly is identified by Production Order number + Production Series + its " +
+            "make_precheck (its assembly ID number must be one of the Production Order's real ID numbers - look the range " +
+            "up with get_production_order_id_numbers instead of guessing). The target assembly is identified by Production Order number + Production Series + its " +
             "own assembly ID number + its own assembly drawing number; the component being scanned has its own, " +
             "separate component drawing number and QR code - do not confuse the two drawing numbers. Prefer calling " +
             "get_precheck_by_po_series_id first to see which component drawing(s) are still Pending for that " +
@@ -68,6 +87,10 @@ namespace Precheck.Host.Agents
             "failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is " +
             "wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never " +
             "claim success for rows or scripts that failed, and never invent rows. " +
+            "QR CODE COUNTS: for any question about how many QR codes are consumed/available/generated, or for a QR code " +
+            "summary or overview, call get_qr_code_status_summary and answer from its counts (readyforconsumption means " +
+            "available/in stock). To LIST consumed QR codes call get_consumed_qr_codes. Never use search_qr_codes for " +
+            "status counts or consumed QR codes - consumed QR codes are inactive and it does not return them. " +
             "FOLLOW-UP SUGGESTIONS: at the very end of EVERY final reply (after any tool calls, and only once), " +
             "append exactly one fenced block in this form, on its own lines after your answer:\n" +
             "```suggestions\n[\"first request\", \"second request\", \"third request\"]\n```\n" +
@@ -80,17 +103,22 @@ namespace Precheck.Host.Agents
             "\"Find ...\", \"Get ...\" (e.g. \"Give me the precheck records for PO-2026-0026\", \"How many QR codes " +
             "are available?\", \"List the pending prechecks\"). Never address the user (no \"Do you want...\" / \"Would you like...\"), never suggest " +
             "something that needs an identifier the user hasn't given, and never mention this block in your text. " +
-            "Omit the block when you are asking the user for missing information or asking them to confirm an action.";
+            "Only suggest requests your tools can actually answer - never offer things like listing inspection stages or " +
+            "which ID numbers already have IR/MSN numbers. Omit the block when you are asking the user for missing " +
+            "information or asking them to confirm an action, unless you can offer REAL values taken from a tool result " +
+            "(for example the ID numbers still free for a Production Order); never invent values.";
 
         private readonly ChatbotTools _tools;
         private readonly ChatbotFileTools _fileTools;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IConfiguration _configuration;
         private readonly ILogger<ChatbotAgentFactory> _logger;
 
-        public ChatbotAgentFactory(ChatbotTools tools, ChatbotFileTools fileTools, IConfiguration configuration, ILogger<ChatbotAgentFactory> logger)
+        public ChatbotAgentFactory(ChatbotTools tools, ChatbotFileTools fileTools, IHttpContextAccessor httpContextAccessor, IConfiguration configuration, ILogger<ChatbotAgentFactory> logger)
         {
             _tools = tools;
             _fileTools = fileTools;
+            _httpContextAccessor = httpContextAccessor;
             _configuration = configuration;
             _logger = logger;
         }
@@ -142,6 +170,9 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.CreateMsnNumberAsync, name: "create_msn_number"),
                 AIFunctionFactory.Create(_tools.CreateStandardIrNumberAsync, name: "create_standard_ir_number"),
                 AIFunctionFactory.Create(_tools.CreateStandardMsnNumberAsync, name: "create_standard_msn_number"),
+                AIFunctionFactory.Create(_tools.GetProductionOrderIdNumbersAsync, name: "get_production_order_id_numbers"),
+                AIFunctionFactory.Create(_tools.GetQrCodeStatusSummaryAsync, name: "get_qr_code_status_summary"),
+                AIFunctionFactory.Create(_tools.GetConsumedQrCodesAsync, name: "get_consumed_qr_codes"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),
                 AIFunctionFactory.Create(_fileTools.ProcessAttachedExcelFileAsync, name: "process_attached_excel_file"),
@@ -163,7 +194,14 @@ namespace Precheck.Host.Agents
                 .UseFunctionInvocation(configure: invoker => invoker.FunctionInvoker = AgentFastAnswer.InvokeAsync)
                 .Build();
 
-            return client.AsAIAgent(instructions: SystemPrompt, name: name, tools: tools);
+            // The follow-up suggestions should fit the user's role (Planner = production orders, Store = precheck and
+            // components, QC = QR codes and IR/MSN, Admin = everything). Appended last so the shared prefix stays cacheable.
+            int.TryParse(_httpContextAccessor.HttpContext?.User.FindFirst("roleid")?.Value, out var roleId);
+            var instructions = SystemPrompt +
+                $" The current user's role domain is: {ChatbotRoles.GetDomainDescription(roleId)}. Keep the follow-up " +
+                "suggestions inside that domain (a role is not offered suggestions from another role's area).";
+
+            return client.AsAIAgent(instructions: instructions, name: name, tools: tools);
         }
     }
 }
