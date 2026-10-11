@@ -31,6 +31,34 @@ namespace Precheck.Agent
             @"\b(please (provide|reply|tell|choose|confirm|pick|specify|give)|reply with|let me know)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // A bare "yes / confirm / go ahead" - the user answering a confirmation prompt.
+        private static readonly Regex Confirmation = new(
+            @"^\s*(yes|y|yep|yeah|ok|okay|sure|confirm|confirmed|go ahead|proceed|do it|please do)\b[\s.!]*$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Wording that reports a finished action. If this appears while no tool ran, the model made it up.
+        private static readonly Regex SuccessClaim = new(
+            @"\b(successfully|has been (created|generated|completed|updated|saved|consumed|stored)|was (created|generated|completed|updated|consumed)|precheck completed|generated \d+ new)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        public const string NoActionWarning =
+            "\n\n⚠️ **Nothing was changed.** No action was actually carried out for this message, so please ignore any " +
+            "claim of success above. Send **confirm** again and I will run it.";
+
+        // The user said "confirm" to a message that asked for confirmation. The model must answer by calling the tool,
+        // not by writing a reply: the first model call is forced to use a tool (the framework relaxes this to automatic
+        // after the first tool round, so the final answer is still written normally).
+        private static AgentRunOptions ForceToolCall(AgentRunOptions? options)
+        {
+            if (options is ChatClientAgentRunOptions chatOptions)
+            {
+                chatOptions.ChatOptions ??= new ChatOptions();
+                chatOptions.ChatOptions.ToolMode = ChatToolMode.RequireAny;
+                return chatOptions;
+            }
+            return new ChatClientAgentRunOptions(new ChatOptions { ToolMode = ChatToolMode.RequireAny });
+        }
+
         public static async IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
             IEnumerable<ChatMessage> messages,
             AgentSession? session,
@@ -52,6 +80,17 @@ namespace Precheck.Agent
             var toolResults = new Dictionary<string, object?>();
 
             var context = await contextBuilder.BuildAsync(received);
+
+            var newestText = received.LastOrDefault(m => m.Role == ChatRole.User)?.Text;
+            var previousAssistantText = context.Where(m => m.Role == ChatRole.Assistant).LastOrDefault()?.Text
+                                        ?? received.Where(m => m.Role == ChatRole.Assistant).LastOrDefault()?.Text;
+            var isConfirmation = !string.IsNullOrWhiteSpace(newestText) && Confirmation.IsMatch(newestText) &&
+                                 previousAssistantText?.Contains("confirm", StringComparison.OrdinalIgnoreCase) == true;
+            if (isConfirmation)
+            {
+                options = ForceToolCall(options);
+                logger?.LogInformation("Confirmation turn: the model is required to call a tool.");
+            }
 
             await foreach (var update in innerAgent.RunStreamingAsync(context, session, options, cancellationToken))
             {
@@ -83,6 +122,16 @@ namespace Precheck.Agent
                 }
 
                 yield return update;
+            }
+
+            // Safety net: a reply that says something was done, in a run where no tool executed at all, is invented
+            // (this is how "Precheck completed successfully" once appeared with nothing written). Say so in the same message.
+            if (toolCalls.Count == 0 && reply.Length > 0 && SuccessClaim.IsMatch(reply.ToString()))
+            {
+                logger?.LogWarning("Reply claims success but no tool ran in this turn - appending a warning.");
+                reply.Append(NoActionWarning);
+                lastMessageId ??= Guid.NewGuid().ToString("N");
+                yield return new AgentResponseUpdate(ChatRole.Assistant, NoActionWarning) { MessageId = lastMessageId };
             }
 
             // Plain count question: the loop ended right after the tool (see AgentFastAnswer), so write the sentence

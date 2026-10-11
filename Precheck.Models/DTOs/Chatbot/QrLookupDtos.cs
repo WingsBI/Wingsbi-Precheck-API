@@ -50,6 +50,15 @@ namespace Precheck.Models.DTOs.Chatbot
         public string? PrecheckStatus { get; set; }
     }
 
+    // A capped page of precheck records plus how many matched in total, so a broad search can't flood the chat.
+    public class PrecheckRecordSearchResultDto
+    {
+        public int TotalRecords { get; set; }
+        public int ShownRecords { get; set; }
+        public List<PrecheckRecordSummaryDto> Records { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
+
     public class QrCodeStatusSummaryDto
     {
         public int TotalQrCodes { get; set; }

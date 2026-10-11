@@ -32,6 +32,7 @@ namespace Precheck.Host.Agents
         private readonly IMaterialRequisitionService _materialRequisitionService;
         private readonly IIdentifierService _identifierService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly Precheck.Service.Service.AnalyticsService.IAnalyticsService _analyticsService;
 
         public ChatbotTools(
             ICommonService commonService,
@@ -40,8 +41,10 @@ namespace Precheck.Host.Agents
             IPrecheckService precheckService,
             IMaterialRequisitionService materialRequisitionService,
             IIdentifierService identifierService,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            Precheck.Service.Service.AnalyticsService.IAnalyticsService analyticsService)
         {
+            _analyticsService = analyticsService;
             _commonService = commonService;
             _productionOrderService = productionOrderService;
             _qrCodeService = qrCodeService;
@@ -330,8 +333,11 @@ namespace Precheck.Host.Agents
             "unit) - optionally filtered by free-text search (PO number/drawing number/LN item code), Production Series, " +
             "status, and/or a date range. Use this whenever the user asks for 'precheck details'/'precheck records' for " +
             "a Production Order and has NOT given a specific Production Series + ID number - pass the PO number as " +
-            "searchQuery to get all precheck records for that PO.")]
-        public async Task<List<PrecheckRecordSummaryDto>> SearchPrecheckRecordsAsync(
+            "searchQuery to get all precheck records for that PO. Returns at most " +
+            "40 records plus the total number that matched: when the total is larger, say so and ask the user to narrow it " +
+            "(PO number, drawing, series, status or date range) instead of listing everything. A request with no criteria at " +
+            "all ('search precheck records') should get the total and a question about what to narrow by.")]
+        public async Task<PrecheckRecordSearchResultDto> SearchPrecheckRecordsAsync(
             [Description("Free-text search term matched against PO number, drawing number, LN item code. Omit if not specified.")] string? searchQuery,
             [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries,
             [Description("Status values to filter by: 'Completed', 'Pending', or 'Updated'. Omit to get all statuses.")] List<string>? status,
@@ -345,10 +351,28 @@ namespace Precheck.Host.Agents
                 Status = status,
                 FromDate = fromDate,
                 ToDate = toDate
-            }, pageNumber: 1, pageSize: 200);
+            }, pageNumber: 1, pageSize: MaxPrecheckRecordsInChat);
 
-            return result.Data.Select(ToSummary).ToList();
+            var shown = result.Data.Select(ToSummary).ToList();
+            return new PrecheckRecordSearchResultDto
+            {
+                TotalRecords = result.TotalRecords,
+                ShownRecords = shown.Count,
+                Records = shown,
+                Message = result.TotalRecords > shown.Count
+                    ? $"Showing the first {shown.Count} of {result.TotalRecords} matching precheck records. Ask the user to narrow the search."
+                    : string.Empty
+            };
         }
+
+        private const int MaxPrecheckRecordsInChat = 40;
+
+        [Description("Get the dashboard/analytics numbers: Production Orders by precheck status (pending/partial/completed), " +
+            "QR codes by status (ready for consumption/generated/consumed), rejected components (material requisitions) and " +
+            "pending swaps. Use it for 'analytics', 'dashboard', 'overall summary', 'show the graph/chart' requests - give the " +
+            "figures as text, because charts cannot be drawn in this chat.")]
+        public Task<Precheck.Models.DTOs.Analytics.AnalyticsSummaryResponse> GetAnalyticsSummaryAsync()
+            => _analyticsService.GetSummaryAsync();
 
         [Description("Get available (verified, not-yet-consumed) components, filtered by an exact QR code OR by a " +
             "combination of free-text search, drawing number, Production Series, and/or status. Broader than " +
