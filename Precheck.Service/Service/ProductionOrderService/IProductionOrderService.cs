@@ -19,6 +19,8 @@ namespace Precheck.Service.Service.ProductionOrderService
         Task<ProductionOrderCountsDto> GetProductionOrderCountsAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, string? poNumber, string? lnItemCode, int roleId, string? drawingNumber, string? searchQuery, List<string>? productionSeries);
         Task<byte[]> ExportProductionOrdersAsync(string? dateFilterType, DateTime? filterDate, DateTime? fromDate, DateTime? toDate, List<int>? precheckStatus, string? poNumber, string? lnItemCode, int roleId, string? drawingNumber, string? searchQuery, List<string>? productionSeries, List<string>? selectedColumns);
         Task<MinStatusUploadResultDto> UploadMinStatusExcelAsync(Stream fileStream, int updatedBy);
+        Task<HashSet<string>> GetExistingProductionOrderNumbersAsync(IEnumerable<string> poNumbers);
+        Task<int> CountExistingProductionOrderRowsAsync(IEnumerable<(string ProductionOrderNumber, string StartId)> rows);
         Task<bool> DeleteProductionOrderAsync(DeleteProductionOrderRequestDto request);
 
     }

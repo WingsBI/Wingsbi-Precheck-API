@@ -10,11 +10,11 @@ The chatbot (LLM) never receives the file itself. The file goes to the server fi
 1. User attaches an Excel file in the chat.
 2. Frontend uploads it to `POST /api/Chatbot/UploadFile` and receives a `fileId`.
 3. Frontend sends the user's chat message to the normal chatbot endpoint, with the returned `attachmentNote` included in the message text.
-4. The chatbot replies asking what the user wants to do with the file (options listed in section 5).
-5. The user answers in chat (e.g. "import production orders").
-6. The chatbot calls the matching tool on the server, using the `fileId`, and replies with the result.
+4. The chatbot works out what the file is from its layout and runs the right action straight away. The user is not asked what to do.
+5. The chatbot replies with what it detected and the result (counts and any failed rows).
+6. Only when it cannot be sure (section 4) does it ask the user a question first.
 
-Nothing is read or imported until step 6. **The frontend never calls the import APIs itself for chat uploads.**
+Nothing is read or imported until step 4. **The frontend never calls the import APIs itself for chat uploads.**
 
 ## 2. API the frontend calls: Upload File
 
@@ -71,11 +71,18 @@ Rules:
 
 ## 4. Expected chatbot behaviour
 
-After a new attachment the chatbot will **not** act. It asks what the user wants to do and lists the options. The user's reply is the instruction, so there is no extra confirm step. Show the chatbot's replies as normal chat messages.
+After a new attachment the chatbot **detects the file type from its header layout and runs the action immediately**, with no question and no confirm step. Its reply starts with what it detected, e.g. "Detected: Bulk Store In sheet", then the counts and any failed rows (up to 30), e.g. "Imported 18 of 20 rows" followed by the failures. Show its replies as normal chat messages.
 
-At the end the chatbot reports counts and lists failed rows (up to 30), for example "Imported 18 of 20 rows" followed by the failures.
+| File | What happens |
+|---|---|
+| Precheck BOM sheet, Bulk Store In sheet, QR code sample | Detected and run automatically |
+| Production Order template | The same template is used for two actions, so the data decides: none of the POs exist yet -> **import**; every row (PO + series + Start ID) already exists -> **update MIN/Status**; a mix of both -> the chatbot **asks** which one the user wants |
+| Master data | Needs two files (drawing-assembly and drawing). With one file the chatbot says which one is missing and waits; once the second file is attached it runs. The two files can be attached in one message or in two separate messages |
+| Unrecognised layout, corrupt or `.xls` file | Nothing is run. The chatbot says so, lists the supported templates and asks the user to attach again |
 
-## 5. Which action gets called
+The user can still tell the chatbot explicitly what to do with a file in the same message (e.g. "update MIN/status from this file"), and it will do that instead of auto-detecting.
+
+## 5. Which action gets called (reference)
 
 | User wants to… | Server tool called | Same logic as existing API | File type | Expected sheet layout |
 |---|---|---|---|---|
@@ -120,7 +127,5 @@ Notes:
 2. Frontend: `POST /api/Chatbot/UploadFile` (form field `file`) returns `fileId: 9c1d...`.
 3. Frontend sends the chat message:
    `[Attached file "po_update.xlsx" - fileId: 9c1d...]`
-4. Chatbot: "What would you like to do with this file?" followed by the seven options.
-5. User: "update min and status".
-6. Server runs `update_production_order_min_status_from_excel`.
-7. Chatbot: "Processed 40 rows. Updated 38. Not found: 2." followed by the two missing PO numbers.
+4. Server detects a Production Order sheet whose POs all already exist, and runs the MIN/Status update.
+5. Chatbot: "Detected: Production Order sheet - updated MIN/Status. Processed 40 rows. Updated 38. Not found: 2." followed by the two missing PO numbers.

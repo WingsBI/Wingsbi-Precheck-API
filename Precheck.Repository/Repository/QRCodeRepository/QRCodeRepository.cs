@@ -642,6 +642,44 @@ namespace Precheck.Repository.Repository.QRCodeRepository
                 throw;
             }
         }
+        // ID numbers of this Production Order that already have a QR code - the same match ValidateQrCode uses
+        // (series + ID number + drawing + PO), so it agrees with what generation will skip. Consumed/disabled QR
+        // codes are inactive but still count: that ID has been generated.
+        public async Task<List<int>> GetIdNumbersWithQrCodeAsync(string productionOrderNumber, int drawingNumberId, int productionSeriesId)
+        {
+            const string query = @"SELECT DISTINCT qd.idnumbers
+                FROM tbl_qrcodedetails qd
+                INNER JOIN tbl_componenttype ct ON qd.componenttypeid = ct.id
+                WHERE qd.productionordernumber = @ProductionOrderNumber
+                  AND qd.drawingnumberid = @DrawingNumberId
+                  AND qd.productionseriesid = @ProductionSeriesId
+                  AND ct.componenttype = 'ID'
+                  AND qd.idnumbers > 0";
+
+            var results = await _db.GetAll<int>(query, new
+            {
+                ProductionOrderNumber = productionOrderNumber,
+                DrawingNumberId = drawingNumberId,
+                ProductionSeriesId = productionSeriesId
+            });
+            return results?.ToList() ?? new List<int>();
+        }
+
+        // QR code counts per status (readyforconsumption, consumed, qrcodegenerated ...). Consumed QR codes are
+        // inactive (isactive = 0), so they are included explicitly rather than filtering on isactive alone.
+        public async Task<List<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>> GetQrCodeStatusCountsAsync()
+        {
+            const string query = @"SELECT ISNULL(tq.qrcodestatus, 'unknown') AS Status, COUNT(*) AS Count
+                FROM tbl_qrcodedetails qd
+                LEFT JOIN tbl_qrcodestatus tq ON qd.qrcodestatusid = tq.id
+                WHERE qd.isactive = 1 OR qd.qrcodestatusid = 2
+                GROUP BY ISNULL(tq.qrcodestatus, 'unknown')
+                ORDER BY COUNT(*) DESC";
+
+            var results = await _db.GetAll<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>(query, new { });
+            return results?.ToList() ?? new List<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>();
+        }
+
         public async Task<QRCodeDetailsResponseDto> ValidateQrCode(int productionseriesid, int idnumbers, int drawingnumberid, string? productionOrderNumber)
         {
             _logger.LogInformation("Request for QRCodeRepository:ValidateQrCode {ProductionSeriesId} {IdNumbers} {DrawingNumberId} {ProductionOrderNumber}", productionseriesid, idnumbers, drawingnumberid, productionOrderNumber);

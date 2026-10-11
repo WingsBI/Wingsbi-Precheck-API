@@ -31,6 +31,7 @@ namespace Precheck.Repository.Repository.ProductionOrderRepository
         Task<(bool HasOverlap, int? MaxEndIdNumber)> CheckProdSeriesStartIdOverlapAsync(int prodSeriesId, int lnItemCodeId, int startIdNumber, int quantity);
         Task<ProductionOrderCountsDto> GetProductionOrderCountsAsync(ProductionOrderCountFilterDto filter);
         Task<MinStatusUploadResultDto> UpdateMinStatusAsync(List<MinStatusUploadRowDto> poList);
+        Task<HashSet<string>> GetExistingProductionOrderNumbersAsync(IEnumerable<string> poNumbers);
         Task<bool> DeleteProductionOrderAsync(DeleteProductionOrderRequestDto request);
         Task<List<PendingPrecheckResponseDto>> GetProductionOrdersForPendingPrecheckAsync(int? assemblyDrawingNumberId, int? prodSeriesId, string? productionOrderNumber, string? lnItemCode);
     }

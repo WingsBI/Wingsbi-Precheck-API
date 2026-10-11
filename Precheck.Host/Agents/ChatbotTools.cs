@@ -182,7 +182,8 @@ namespace Precheck.Host.Agents
         // the "ByDrawingNumber" repository methods instead, which null-guard every filter (drawing
         // number, production series) and don't have that department requirement.
         [Description("List/filter IR numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
-            "At least one of drawingNumber or productionSeries should be provided.")]
+            "Both filters are optional: for a plain 'list the IR numbers' request call it with both omitted to get all of " +
+            "them - do not ask the user for a filter first.")]
         public async Task<List<IRNumberSummaryDto>> GetIrNumbersAsync(
             [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
             [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
@@ -204,7 +205,8 @@ namespace Precheck.Host.Agents
         }
 
         [Description("List/filter MSN numbers, optionally by drawing number and/or Production Series (e.g. 'H'). " +
-            "At least one of drawingNumber or productionSeries should be provided.")]
+            "Both filters are optional: for a plain 'list the MSN numbers' request call it with both omitted to get all of " +
+            "them - do not ask the user for a filter first.")]
         public async Task<List<MSNNumberSummaryDto>> GetMsnNumbersAsync(
             [Description("Drawing number to filter by (partial match). Omit if not specified.")] string? drawingNumber,
             [Description("Production Series name to filter by (exact match, e.g. 'H'). Omit if not specified.")] string? productionSeries)
@@ -224,6 +226,18 @@ namespace Precheck.Host.Agents
                 CreatedDate = r.CreatedDate
             }).ToList();
         }
+
+        [Description("List the inspection Stages available for IR (Inspection Report) numbers - the same list the IR number " +
+            "screen offers. Call this BEFORE asking the user for the stage when creating an IR number (Manufacturing or " +
+            "Purchase Item), and show the user the list to pick from.")]
+        public async Task<List<string>> GetIrStagesAsync()
+            => (await _commonService.GetIRStagesService()).Select(s => s.StageName).Distinct().ToList();
+
+        [Description("List the Stages available for MSN (Memo Stage Number) numbers - the same list the MSN number screen " +
+            "offers. Call this BEFORE asking the user for the stage when creating an MSN number (Manufacturing or Purchase " +
+            "Item), and show the user the list to pick from.")]
+        public async Task<List<string>> GetMsnStagesAsync()
+            => (await _commonService.GetMSNStagesService()).Select(s => s.StageName).Distinct().ToList();
 
         // ---- Store domain: Precheck ----
 
@@ -338,7 +352,9 @@ namespace Precheck.Host.Agents
 
         [Description("Get available (verified, not-yet-consumed) components, filtered by an exact QR code OR by a " +
             "combination of free-text search, drawing number, Production Series, and/or status. Broader than " +
-            "get_available_components, which requires a resolved drawing number ID.")]
+            "get_available_components, which requires a resolved drawing number ID. Use this for questions about " +
+            "'available components' (the components still waiting to be consumed in Production Orders' prechecks, one row " +
+            "per pending line with its Production Order and ID number); for stock of QR codes use get_available_qr_codes.")]
         public async Task<List<AvailableComponentByFilterSummaryDto>> GetAvailableComponentsByFilterAsync(
             [Description("Exact QR code to look up. When provided, the other filters below are ignored.")] string? qrCode,
             [Description("Free-text search matched against Production Order number and ID number. Ignored when qrCode is provided.")] string? searchQuery,
@@ -422,14 +438,50 @@ namespace Precheck.Host.Agents
             }).ToList();
         }
 
-        [Description("List Material Requisitions - components issued out of verified stock into production - optionally " +
-            "filtered by status. To see the exact status values in use, call this once with no status filter first.")]
-        public async Task<List<MaterialRequisitionSummaryDto>> GetMaterialRequisitionsAsync(
-            [Description("Exact status text to filter by (e.g. as seen on an unfiltered call's Status field). Omit to get all requisitions.")] string? status)
+        private static bool ContainsText(string? value, string? filter)
+            => !string.IsNullOrWhiteSpace(value) && value.Contains(filter!.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        // Text filter that prefers an EXACT match: if any row equals the filter (ignoring case) only those rows are kept,
+        // otherwise rows that merely contain it. So "Rucha" does not also pull in "ruchak", and "PO-2026-0001" does not
+        // also match "PO-2026-00012", while a partial like "pending" still works.
+        private static IEnumerable<T> FilterByText<T>(IEnumerable<T> items, string? filter, params Func<T, string?>[] fields)
         {
-            var results = string.IsNullOrWhiteSpace(status)
-                ? await _materialRequisitionService.GetMaterialRequisitions()
-                : await _materialRequisitionService.GetMaterialRequisitionsByStatus(status, 0);
+            if (string.IsNullOrWhiteSpace(filter)) return items;
+            var list = items.ToList();
+            var text = filter.Trim();
+            var exact = list.Where(i => fields.Any(f => string.Equals(f(i)?.Trim(), text, StringComparison.OrdinalIgnoreCase))).ToList();
+            return exact.Count > 0 ? exact : list.Where(i => fields.Any(f => ContainsText(f(i), text))).ToList();
+        }
+
+        [Description("List Material Requisitions - requests raised when a component is rejected at precheck. Workflow: " +
+            "Pending-Planner (planner reviews) -> Pending-Store (store handles) -> Completed. All filters are optional and " +
+            "combine: use productionOrderNumber/drawingNumber for 'requisitions of PO-X / drawing Y', requestOwner for " +
+            "'raised by <name>', fromDate/toDate for a created-date range, status for a stage (partial text works: " +
+            "'pending' matches both Pending-Planner and Pending-Store), and pendingMoreThanDays for 'pending for more " +
+            "than N days' / overdue requests. Cancelled requests are not listed. For ONE request's full details use " +
+            "get_material_requisition_details; for counts per status use get_material_requisition_status_summary.")]
+        public async Task<List<MaterialRequisitionSummaryDto>> GetMaterialRequisitionsAsync(
+            [Description("Status text to filter by, e.g. 'Pending-Planner', 'Pending-Store', 'Completed', or just 'pending'. Omit for all.")] string? status,
+            [Description("Production Order number (exact or partial). Omit if not specified.")] string? productionOrderNumber,
+            [Description("Drawing/part number of the rejected component (exact or partial). Omit if not specified.")] string? drawingNumber,
+            [Description("Name of the person who raised/owns the request (partial match). Omit if not specified.")] string? requestOwner,
+            [Description("Start of the created-date range. Omit if not specified.")] DateTime? fromDate,
+            [Description("End of the created-date range. Omit if not specified.")] DateTime? toDate,
+            [Description("Only requests that are still pending (not Completed) and were created more than this many days ago. Omit if not specified.")] int? pendingMoreThanDays)
+        {
+            var results = (await _materialRequisitionService.GetMaterialRequisitions()).AsEnumerable();
+
+            results = FilterByText(results, status, r => r.Status);
+            results = FilterByText(results, productionOrderNumber, r => r.ProductionOrderNumber);
+            results = FilterByText(results, drawingNumber, r => r.DrawingNumber, r => r.ConsumedInDrawing);
+            results = FilterByText(results, requestOwner, r => r.RequestOwner, r => r.Username);
+            if (fromDate.HasValue)
+                results = results.Where(r => r.CreatedDate.HasValue && r.CreatedDate.Value >= fromDate.Value.Date);
+            if (toDate.HasValue)
+                results = results.Where(r => r.CreatedDate.HasValue && r.CreatedDate.Value <= toDate.Value.Date.AddDays(1).AddTicks(-1));
+            if (pendingMoreThanDays.HasValue)
+                results = results.Where(r => ContainsText(r.Status, "pending") && r.CreatedDate.HasValue &&
+                                             (DateTime.Now - r.CreatedDate.Value).TotalDays > pendingMoreThanDays.Value);
 
             return results.Select(r => new MaterialRequisitionSummaryDto
             {
@@ -446,11 +498,91 @@ namespace Precheck.Host.Agents
             }).ToList();
         }
 
-        [Description("List component swapping records - where one physical component (by ID number) was swapped for " +
-            "another against a drawing number and/or Production Order.")]
-        public async Task<List<SwappingDetailSummaryDto>> GetSwappingDetailsAsync()
+        [Description("Get the FULL details of ONE Material Requisition by its request number (e.g. REQ001): which component was " +
+            "rejected and why (remarks), its ID number, IR/MSN/MRIR numbers, the assembly it was consumed in, quantity, who " +
+            "raised it and the key dates. Use it for 'show details of REQ001', 'why was it raised', 'which component is " +
+            "it for', 'what are its IR/MSN numbers'.")]
+        public async Task<MaterialRequisitionDetailDto> GetMaterialRequisitionDetailsAsync(
+            [Description("The exact request number, e.g. 'REQ001'.")] string requestNumber)
         {
-            var results = await _materialRequisitionService.GetSwappingDetails();
+            var r = (await _materialRequisitionService.GetMaterialRequisitions())
+                .FirstOrDefault(x => string.Equals(x.RequestNumber?.Trim(), requestNumber?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (r == null)
+            {
+                return new MaterialRequisitionDetailDto
+                {
+                    RequestNumber = requestNumber,
+                    Message = $"Material Requisition '{requestNumber}' was not found (it may not exist or may have been cancelled)."
+                };
+            }
+
+            return new MaterialRequisitionDetailDto
+            {
+                RequestNumber = r.RequestNumber,
+                Status = r.Status,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                ProjectNumber = r.ProjectNumber,
+                ProductionSeries = r.ProductionSeries,
+                ComponentDrawingNumber = r.DrawingNumber,
+                Nomenclature = r.Nomenclature,
+                LnItemCode = r.LnItemCode,
+                ComponentType = r.ComponentType,
+                IdNumber = r.IdNumber,
+                IrNumber = r.IrNumber,
+                MsnNumber = r.MsnNumber,
+                MrirNumber = r.MrirNumber,
+                ConsumedInDrawing = r.ConsumedInDrawing,
+                Quantity = r.Quantity,
+                Unit = r.Unit,
+                Remarks = r.Remarks,
+                IsRejected = r.IsRejected,
+                IsPrecheckComplete = r.IsPrecheckComplete,
+                Hwno = r.Hwno,
+                RequestOwner = r.RequestOwner,
+                RaisedBy = r.Username,
+                CreatedDate = r.CreatedDate,
+                ModifiedDate = r.ModifiedDate,
+                PrecheckDate = r.PrecheckDate
+            };
+        }
+
+        [Description("Get how many Material Requisitions are in each status (Pending-Planner, Pending-Store, Completed and " +
+            "cancelled) and the total. Use it for 'how many requisitions are pending / completed / cancelled', 'requisition " +
+            "summary or overview'. Cancelled requests are included here (the list tool does not show them).")]
+        public async Task<MaterialRequisitionStatusSummaryDto> GetMaterialRequisitionStatusSummaryAsync()
+        {
+            var counts = await _materialRequisitionService.GetMaterialRequisitionStatusCounts();
+
+            // 'Request- Deleted' is the status a cancelled request gets.
+            foreach (var c in counts.Where(c => c.Status.Contains("Deleted", StringComparison.OrdinalIgnoreCase)))
+                c.Status = $"{c.Status} (cancelled)";
+
+            return new MaterialRequisitionStatusSummaryDto
+            {
+                Total = counts.Sum(c => c.Count),
+                ByStatus = counts,
+                Message = counts.Count == 0 ? "There are no material requisitions." : string.Empty
+            };
+        }
+
+        [Description("List component swapping records - where one physical component (by ID number) was swapped for " +
+            "another against a drawing number and/or Production Order. All filters are optional: use productionOrderNumber " +
+            "for 'was anything swapped from/to PO-X', drawingNumber for 'swap history of drawing Y', idNumber for 'was ID " +
+            "number N swapped'.")]
+        public async Task<List<SwappingDetailSummaryDto>> GetSwappingDetailsAsync(
+            [Description("Production Order number the swap came from or went to (exact or partial). Omit if not specified.")] string? productionOrderNumber,
+            [Description("Swapped drawing/part number (exact or partial). Omit if not specified.")] string? drawingNumber,
+            [Description("An ID number that was swapped from or to. Omit if not specified.")] string? idNumber)
+        {
+            var results = (await _materialRequisitionService.GetSwappingDetails()).AsEnumerable();
+
+            results = FilterByText(results, productionOrderNumber, r => r.SwappedFromPONumber, r => r.SwappedToPONumber);
+            results = FilterByText(results, drawingNumber, r => r.SwappedDrawingNumber);
+            if (!string.IsNullOrWhiteSpace(idNumber))
+                results = results.Where(r => string.Equals(r.FromSwappedIdNumber?.Trim(), idNumber.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                                             string.Equals(r.ToSwappedIdNumber?.Trim(), idNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+
             return results.Select(r => new SwappingDetailSummaryDto
             {
                 SwappedDrawingNumber = r.SwappedDrawingNumber,
@@ -464,7 +596,8 @@ namespace Precheck.Host.Agents
 
         [Description("Get available QR codes (verified stock not yet consumed), grouped by drawing number and LN item " +
             "code with total and remaining quantities and the actual QR code numbers in each group, optionally " +
-            "filtered by a search term and/or Production Series.")]
+            "filtered by a search term and/or Production Series. Use this for questions about 'available QR codes' / " +
+            "QR code stock - NOT for 'available components' (use get_available_components_by_filter for those).")]
         public async Task<List<AvailableQrGroupSummaryDto>> GetAvailableQrCodesAsync(
             [Description("Free-text search matched against LN item code/drawing number. Omit if not specified.")] string? searchQuery,
             [Description("Production Series names to filter by. Omit if not specified.")] List<string>? prodSeries)
@@ -916,11 +1049,223 @@ namespace Precheck.Host.Agents
             return preview;
         }
 
-        // ---- Create QR Code (Manufacturing Item only - ID/FIM/SI/BATCH component types) ----
+        // ---- QR code ID numbers and status summary ----
 
-        [Description("Generate QR code(s) for a Manufacturing Item component, identified by Production Order number " +
-            "and Component Type (ID, FIM, SI, or BATCH). For ComponentType 'ID', provide idNumbers (one or more serial " +
-            "ID numbers for the drawing); for 'FIM'/'SI'/'BATCH', provide quantity instead. ALWAYS call this first with " +
+        // 24,25,27 -> "24-25, 27"
+        private static string ToRanges(IEnumerable<int> numbers)
+        {
+            var sorted = numbers.Distinct().OrderBy(n => n).ToList();
+            var parts = new List<string>();
+            for (var i = 0; i < sorted.Count; i++)
+            {
+                var start = sorted[i];
+                while (i + 1 < sorted.Count && sorted[i + 1] == sorted[i] + 1) i++;
+                parts.Add(sorted[i] == start ? start.ToString() : $"{start}-{sorted[i]}");
+            }
+            return string.Join(", ", parts);
+        }
+
+        [Description("Get the ID numbers a Production Order actually covers (start-end range) and which of them already have a " +
+            "QR code, so only real, still-available ID numbers are offered. ALWAYS call this as soon as you have a Production " +
+            "Order number and the user wants to generate QR codes (or asks which ID numbers a PO has) - BEFORE asking the " +
+            "user for ID numbers. Also returns the drawing's mapped ComponentType (informational: the user can still choose " +
+            "a different component type for QR generation).")]
+        public async Task<ProductionOrderIdNumbersDto> GetProductionOrderIdNumbersAsync(
+            [Description("The exact Production Order number.")] string productionOrderNumber)
+        {
+            var po = await _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
+            if (po == null)
+            {
+                return new ProductionOrderIdNumbersDto { Message = $"Production Order '{productionOrderNumber}' was not found." };
+            }
+
+            var result = new ProductionOrderIdNumbersDto
+            {
+                ProductionOrderNumber = po.ProductionOrderNumber,
+                ProductionSeries = po.ProductionSeries,
+                DrawingNumber = po.DrawingNumber,
+                ComponentType = po.ComponentType,
+                StartIdNumber = po.StartIdNumber,
+                EndIdNumber = po.EndIdNumber
+            };
+
+            if (po.StartIdNumber == null || po.EndIdNumber == null)
+            {
+                result.Message = $"Production Order '{productionOrderNumber}' has no ID number range.";
+                return result;
+            }
+
+            var start = po.StartIdNumber.Value;
+            var end = po.EndIdNumber.Value;
+            result.TotalIdNumbers = end - start + 1;
+
+            // Only ID numbers inside this PO's own range count; a QR for an ID outside it (stale data) is not this PO's.
+            var withQr = new List<int>();
+            if (po.DrawingNumberId != null && po.ProdSeriesId != null)
+            {
+                withQr = (await _qrCodeService.GetIdNumbersWithQrCodeService(productionOrderNumber, po.DrawingNumberId.Value, po.ProdSeriesId.Value))
+                    .Where(id => id >= start && id <= end)
+                    .Distinct()
+                    .ToList();
+            }
+
+            var withoutQr = Enumerable.Range(start, result.TotalIdNumbers).Except(withQr).ToList();
+            result.IdNumbersWithQrCode = ToRanges(withQr);
+            result.IdNumbersWithoutQrCode = ToRanges(withoutQr);
+            result.CountWithoutQrCode = withoutQr.Count;
+            result.Message = $"This Production Order covers ID numbers {start}-{end}. " +
+                (withQr.Count == 0
+                    ? "None of them has a QR code yet."
+                    : withoutQr.Count == 0
+                        ? "Every one of them already has a QR code."
+                        : $"ID numbers {result.IdNumbersWithQrCode} already have a QR code; {result.IdNumbersWithoutQrCode} do not.");
+            return result;
+        }
+
+        [Description("List QR codes that have been CONSUMED (used up in an assembly), optionally for one Production Order and/or a " +
+            "created-date range. Use this - not search_qr_codes, which only returns active QR codes - whenever the user asks " +
+            "to list or see consumed QR codes.")]
+        public async Task<List<QrCodeSummaryDto>> GetConsumedQrCodesAsync(
+            [Description("Exact Production Order number to filter by. Omit if not specified.")] string? productionOrderNumber,
+            [Description("Start of the created-date range. Omit if not specified.")] DateTime? fromDate,
+            [Description("End of the created-date range. Omit if not specified.")] DateTime? toDate)
+        {
+            var results = await _qrCodeService.GetConsumedQRCodeDetailsWithParameterService(new GetQRCodeRequestDto
+            {
+                ProductionOrderNumber = string.IsNullOrWhiteSpace(productionOrderNumber) ? null : productionOrderNumber,
+                FromDate = fromDate,
+                ToDate = toDate
+            });
+
+            return results.Select(r => new QrCodeSummaryDto
+            {
+                QrCodeNumber = r.QrCodeNumber,
+                QrCodeStatus = r.QrCodeStatus,
+                ProductionOrderNumber = r.ProductionOrderNumber,
+                RackLocation = r.RackLocation,
+                IdNumber = r.IdNumber,
+                ExpiryDate = r.ExpiryDate
+            }).ToList();
+        }
+
+        [Description("Tell where a QR code can be CONSUMED: the Production Orders (with ID numbers) whose precheck still " +
+            "needs this QR code's component, after checking the QR code itself is ready for consumption (status, remaining " +
+            "quantity). Use it for questions like 'can this QR code be consumed?', 'where/in which production order can I " +
+            "use this QR code?' - and answer with the Production Order numbers it returns, not just the QR status. " +
+            "A QR code may be tied to a drawing rather than a Production Order, so the QR's own PO is not the answer.")]
+        public async Task<QrConsumptionOptionsDto> GetQrCodeConsumptionOptionsAsync(
+            [Description("The exact QR code number.")] string qrCodeNumber)
+        {
+            var qr = await _qrCodeService.GetQRCodeDetailsService(qrCodeNumber, null);
+            if (qr == null)
+            {
+                // Consumed QR codes are inactive, so the lookup above does not return them.
+                var consumed = (await _qrCodeService.GetConsumedQRCodeDetailsWithParameterService(new GetQRCodeRequestDto { QRCodeNumber = qrCodeNumber })).FirstOrDefault();
+                return new QrConsumptionOptionsDto
+                {
+                    QrCodeNumber = qrCodeNumber,
+                    QrCodeStatus = consumed?.QrCodeStatus,
+                    DrawingNumber = consumed?.DrawingNumber,
+                    ProductionSeries = consumed?.ProductionSeries,
+                    ComponentType = consumed?.ComponentType,
+                    Message = consumed != null
+                        ? "This QR code cannot be consumed: it has already been consumed."
+                        : $"QR code '{qrCodeNumber}' was not found."
+                };
+            }
+
+            var result = new QrConsumptionOptionsDto
+            {
+                QrCodeNumber = qr.QrCodeNumber,
+                QrCodeStatus = qr.QrCodeStatus,
+                DrawingNumber = qr.DrawingNumber,
+                ProductionSeries = qr.ProductionSeries,
+                ComponentType = qr.ComponentType,
+                RemainingQuantity = qr.RemainingQuantity
+            };
+
+            // Status 1 = ready for consumption (the same rule the Precheck screen applies before listing anything).
+            if (qr.QrCodeStatusId != 1)
+            {
+                result.Message = $"This QR code cannot be consumed: its status is '{qr.QrCodeStatus}' (only 'readyforconsumption' QR codes can be consumed).";
+                return result;
+            }
+            if (qr.RemainingQuantity is <= 0)
+            {
+                result.Message = "This QR code cannot be consumed: no quantity is remaining on it.";
+                return result;
+            }
+
+            List<Precheck.Models.DataModel.Precheck.AvailableComponentModel> lines;
+            try
+            {
+                lines = await _precheckService.AvailableComponentDetailsService(new AvailableComponentFilterDto { QrCode = qrCodeNumber });
+            }
+            catch (ApplicationException ex)
+            {
+                result.Message = ex.Message;
+                return result;
+            }
+
+            result.ConsumableIn = lines
+                .Where(l => !string.IsNullOrWhiteSpace(l.ProductionOrderNumber))
+                .GroupBy(l => l.ProductionOrderNumber)
+                .Select(g => new QrConsumptionTargetDto
+                {
+                    ProductionOrderNumber = g.Key,
+                    IdNumbers = ToRanges(g.Select(l => int.TryParse(l.IdNumber, out var n) ? n : (int?)null)
+                        .Where(n => n.HasValue).Select(n => n!.Value)),
+                    PendingLines = g.Count(),
+                    RequiredQuantity = g.Sum(l => l.Quantity),
+                    PrecheckStatus = g.Select(l => l.PrecheckStatus).FirstOrDefault()
+                })
+                .OrderBy(t => t.ProductionOrderNumber)
+                .ToList();
+            result.ProductionOrderCount = result.ConsumableIn.Count;
+            result.CanBeConsumed = result.ConsumableIn.Count > 0;
+
+            if (result.CanBeConsumed)
+            {
+                result.Message = $"This QR code is ready for consumption and can be consumed in {result.ProductionOrderCount} Production Order(s).";
+                return result;
+            }
+
+            // Nothing pending right now: say which assembly this component belongs to, since a Production Order for it
+            // is what creates the pending precheck line.
+            var drawing = (await _commonService.GetAllDrawingNumberService(new GetAllDrawingRequestDto { Search = qr.DrawingNumber }))
+                .FirstOrDefault(d => string.Equals(d.DrawingNumber, qr.DrawingNumber, StringComparison.OrdinalIgnoreCase));
+            result.ParentAssemblies = (drawing?.ParentDrawingNumbers ?? new List<string>()).Distinct().ToList();
+            result.Message = "This QR code is ready for consumption, but no Production Order currently has a pending precheck line that needs this component" +
+                (result.ParentAssemblies.Count > 0
+                    ? $". It is a component of assembly {string.Join(", ", result.ParentAssemblies)} - a Production Order for that assembly is needed before it can be consumed."
+                    : ".");
+            return result;
+        }
+
+        [Description("Get how many QR codes are in each status (readyforconsumption = available/in stock, consumed, " +
+            "qrcodegenerated = generated but not stored in yet) and the total. Use this for ANY question about QR code counts " +
+            "by status or a QR code summary/overview - e.g. 'how many QR codes are consumed', 'how many are available'. " +
+            "Consumed QR codes are inactive, so search_qr_codes can never return them - do not use it for these questions.")]
+        public async Task<QrCodeStatusSummaryDto> GetQrCodeStatusSummaryAsync()
+        {
+            var counts = await _qrCodeService.GetQrCodeStatusCountsService();
+            return new QrCodeStatusSummaryDto
+            {
+                TotalQrCodes = counts.Sum(c => c.Count),
+                ByStatus = counts,
+                Message = counts.Count == 0 ? "There are no QR codes." : string.Empty
+            };
+        }
+
+        // ---- Create QR Code (Manufacturing Item - ID needs a Production Order; FIM/SI/BATCH work from a drawing number) ----
+
+        [Description("Generate QR code(s) for a Manufacturing Item component. What identifies the component depends on its " +
+            "Component Type: 'ID' components are generated per ID number and REQUIRE a Production Order number (the ID " +
+            "numbers come from that PO's range) plus idNumbers. 'FIM', 'SI' and 'BATCH' components do NOT need a " +
+            "Production Order number - identify them by drawingNumber + productionSeries (a Production Order number is " +
+            "optional for them) and provide the quantity. If the user says they want to create a QR code and has given a " +
+            "drawing number, or says FIM/SI/BATCH, never insist on a Production Order number. If componentType is omitted " +
+            "it defaults to the drawing's own component type. ALWAYS call this first with " +
             "confirmed=false to preview (no QR codes are generated yet) - show the user the resolved Part Number/Item " +
             "Code/Production Series and all entered values, and ask them to confirm. Only call again with " +
             "confirmed=true after the user has explicitly confirmed (e.g. 'yes', 'go ahead', 'confirm') in their most " +
@@ -932,16 +1277,25 @@ namespace Precheck.Host.Agents
             "The result distinguishes GeneratedQrCodeNumbers (newly created) from AlreadyExistingQrCodeNumbers (that " +
             "ID already had a QR code, so nothing new was made for it) - report both clearly, never claim an " +
             "already-existing QR code was newly generated. An IR number is REQUIRED and gets linked to the QR code(s): " +
-            "if irNumber is omitted the tool returns the IR numbers available for this Production Order's drawing/series " +
+            "if irNumber is omitted the tool returns the IR numbers available for the drawing/series " +
             "- show them and ask the user which one to use; never guess or pick one for them. An MSN number is ALSO " +
             "REQUIRED and linked the same way: if msnNumber is omitted the tool returns the available MSN numbers - ask " +
             "the user to pick one, or to answer 'NA' if no MSN applies.")]
         public async Task<CreateQrCodeResponseDto> CreateQrCodeAsync(
-            [Description("The exact Production Order number.")] string productionOrderNumber,
-            [Description("Component Type: ID, FIM, SI, or BATCH.")] string componentType,
+            [Description("The exact Production Order number. REQUIRED for ComponentType 'ID'; optional for FIM/SI/BATCH " +
+                "(omit it if the user did not give one).")] string? productionOrderNumber,
+            [Description("The exact drawing/part number. Required for FIM/SI/BATCH when no Production Order number is given. " +
+                "Ignored when a Production Order number is given (its own drawing is used).")] string? drawingNumber,
+            [Description("The Production Series name (e.g. 'H'). Required for FIM/SI/BATCH when no Production Order number " +
+                "is given. Ignored when a Production Order number is given.")] string? productionSeries,
+            [Description("Component Type: ID, FIM, SI, or BATCH. Omit to use the drawing's own component type.")] string? componentType,
             [Description("Required for ComponentType 'ID': one or more ID numbers - a single number, a range like " +
                 "'1-5', or a comma list like '1,2,3'. Omit for FIM/SI/BATCH.")] string? idNumbers,
-            [Description("Required for ComponentType 'FIM'/'SI'/'BATCH': the quantity. Omit for 'ID'.")] decimal? quantity,
+            [Description("Quantity - only for the Production Order path (a Production Order number was given) with " +
+                "FIM/SI/BATCH. Omit for 'ID' and for the drawing-number path (use rows).")] decimal? quantity,
+            [Description("Drawing-number path (no Production Order number), FIM/SI/BATCH: one entry per QR code to generate, " +
+                "like the rows of the QR code screen's table - quantity (required) plus the optional idNo, size, mrir and " +
+                "heatLotBatchNo. Omit for 'ID' and for the Production Order path.")] List<QrRowInput>? rows,
             [Description("Build number. Omit if not specified.")] string? buildNumber,
             [Description("Operation number. Omit if not specified.")] string? operationNumber,
             [Description("Remark/notes. Omit if not specified.")] string? remark,
@@ -951,44 +1305,156 @@ namespace Precheck.Host.Agents
                 "Required - omit only to get the list of available MSN numbers.")] string? msnNumber,
             [Description("Set true ONLY after the user has explicitly confirmed the previewed details.")] bool confirmed)
         {
-            var po = await _productionOrderService.GetByProductionOrderNumberAsync(productionOrderNumber);
-            if (po == null)
+            // What the QR codes are generated for: the Production Order's own drawing/series/unit when a PO is given,
+            // otherwise the drawing number + production series the user named (FIM/SI/BATCH only).
+            int drawingId, seriesId;
+            string? drawingName, itemCode, seriesName, unitName, defaultComponentType;
+            int? unitId;
+            MasterOrderRange? idRange = null;
+            var poNumber = string.IsNullOrWhiteSpace(productionOrderNumber) ? null : productionOrderNumber.Trim();
+
+            if (poNumber != null)
             {
-                return new CreateQrCodeResponseDto { Message = $"Production Order '{productionOrderNumber}' was not found." };
+                var po = await _productionOrderService.GetByProductionOrderNumberAsync(poNumber);
+                if (po == null)
+                {
+                    return new CreateQrCodeResponseDto { Message = $"Production Order '{poNumber}' was not found." };
+                }
+                if (po.ProdSeriesId == null || po.DrawingNumberId == null)
+                {
+                    return new CreateQrCodeResponseDto { Message = $"Production Order '{poNumber}' has no resolved Production Series/Drawing Number - cannot generate a QR code for it." };
+                }
+
+                drawingId = po.DrawingNumberId.Value;
+                seriesId = po.ProdSeriesId.Value;
+                drawingName = po.DrawingNumber;
+                itemCode = po.LnItemCode;
+                seriesName = po.ProductionSeries;
+                unitId = po.UnitId;
+                unitName = po.UnitName;
+                defaultComponentType = null;
+                idRange = new MasterOrderRange(po.StartIdNumber, po.EndIdNumber);
             }
-            if (po.ProdSeriesId == null || po.DrawingNumberId == null)
+            else
             {
-                return new CreateQrCodeResponseDto { Message = $"Production Order '{productionOrderNumber}' has no resolved Production Series/Drawing Number - cannot generate a QR code for it." };
+                if (string.IsNullOrWhiteSpace(drawingNumber))
+                {
+                    return new CreateQrCodeResponseDto
+                    {
+                        Message = "Which component should the QR code be for? Ask for the drawing/part number (FIM, SI or BATCH " +
+                                  "components need no Production Order number), or for the Production Order number if it is an 'ID' component."
+                    };
+                }
+
+                var drawings = await _commonService.GetAllDrawingNumberService(new GetAllDrawingRequestDto { Search = drawingNumber });
+                var drawing = drawings.FirstOrDefault(d => string.Equals(d.DrawingNumber, drawingNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (drawing == null)
+                {
+                    return new CreateQrCodeResponseDto { Message = $"Drawing/Part number '{drawingNumber}' was not found." };
+                }
+
+                // The drawing's own component type decides the path - no need to ask the user. ID components cannot be
+                // created from a drawing number alone, so say so right away (before asking for anything else).
+                var drawingType = string.IsNullOrWhiteSpace(componentType) ? drawing.ComponentType : componentType;
+                if (string.Equals(drawingType, "ID", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new CreateQrCodeResponseDto
+                    {
+                        Message = $"Drawing '{drawing.DrawingNumber}' is an 'ID' component, so QR codes for it cannot be created from the drawing number alone - " +
+                                  "tell the user they need to provide the Production Order number (its ID numbers come from that order)."
+                    };
+                }
+
+                // The production series is part of the drawing's master data: use it instead of asking. One available
+                // series is used automatically; several are offered as the only choices; the user's own series must be
+                // one of them.
+                var availableSeries = (drawing.AvailableSeries ?? new List<string>())
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var seriesName0 = string.IsNullOrWhiteSpace(productionSeries) ? null : productionSeries.Trim();
+
+                if (seriesName0 == null && availableSeries.Count == 1)
+                {
+                    seriesName0 = availableSeries[0];
+                }
+                else if (seriesName0 == null)
+                {
+                    var options = availableSeries.Count > 1
+                        ? availableSeries
+                        : (await _commonService.ProductionSeriesService()).Select(s => s.ProductionSeries).ToList();
+                    return new CreateQrCodeResponseDto
+                    {
+                        Message = $"Which Production Series is this for? Ask the user to pick one. Available for drawing '{drawing.DrawingNumber}': {string.Join(", ", options)}."
+                    };
+                }
+                else if (availableSeries.Count > 0 && !availableSeries.Contains(seriesName0, StringComparer.OrdinalIgnoreCase))
+                {
+                    return new CreateQrCodeResponseDto
+                    {
+                        Message = $"Production Series '{seriesName0}' is not available for drawing '{drawing.DrawingNumber}'. Available: {string.Join(", ", availableSeries)}."
+                    };
+                }
+
+                var series = await _commonService.ProductionSeriesByNameService(seriesName0);
+                if (series == null)
+                {
+                    var allSeries = await _commonService.ProductionSeriesService();
+                    return new CreateQrCodeResponseDto { Message = $"Production Series '{seriesName0}' was not found. Available: {string.Join(", ", allSeries.Select(s => s.ProductionSeries))}." };
+                }
+
+                drawingId = drawing.Id;
+                seriesId = series.Id;
+                drawingName = drawing.DrawingNumber;
+                itemCode = drawing.LnItemCode;
+                seriesName = series.ProductionSeries;
+                // The drawing lookup carries no unit id (and a unit name taken from the assembly mapping), so read the
+                // drawing's own unit: the one a Production Order of this drawing uses, and the one that gets saved.
+                var drawingUnit = await _commonService.GetUnitByDrawingNumberIdService(drawing.Id);
+                unitId = drawingUnit?.Id ?? drawing.UnitId;
+                unitName = drawingUnit?.UnitName ?? drawing.UnitName;
+                defaultComponentType = drawing.ComponentType;
             }
 
-            var componentTypeRecord = await _commonService.ComponentTypeByNameService(componentType);
+            var requestedType = string.IsNullOrWhiteSpace(componentType) ? defaultComponentType : componentType;
+            if (string.IsNullOrWhiteSpace(requestedType))
+            {
+                return new CreateQrCodeResponseDto { Message = "Which Component Type is it - ID, FIM, SI or BATCH? Ask the user." };
+            }
+
+            var componentTypeRecord = await _commonService.ComponentTypeByNameService(requestedType);
             if (componentTypeRecord == null)
             {
                 var validTypes = await _commonService.ComponentTypeService();
-                return new CreateQrCodeResponseDto { Message = $"Component Type '{componentType}' not recognized. Valid types: {string.Join(", ", validTypes.Select(t => t.ComponentType))}." };
+                return new CreateQrCodeResponseDto { Message = $"Component Type '{requestedType}' not recognized. Valid types: {string.Join(", ", validTypes.Select(t => t.ComponentType))}." };
             }
 
             var isIdType = string.Equals(componentTypeRecord.ComponentType, "ID", StringComparison.OrdinalIgnoreCase);
-            if (isIdType && string.IsNullOrWhiteSpace(idNumbers))
+
+            // FIM/SI/BATCH from a drawing number use the standard QR generation (a table of rows: ID No, Quantity, Size,
+            // MRIR, Heat/Lot/Batch No, stored in automatically); with a Production Order they use the manufacturing one.
+            var useStandardPath = poNumber == null && !isIdType;
+            var qrRows = (rows ?? new List<QrRowInput>()).Where(r => r != null).ToList();
+
+            // Only 'ID' components are tied to a Production Order (their ID numbers are the PO's range).
+            if (isIdType && poNumber == null)
             {
-                var rangeHint = po.StartIdNumber.HasValue && po.EndIdNumber.HasValue
-                    ? $" This Production Order covers ID numbers {po.StartIdNumber} to {po.EndIdNumber} - pick one or more within that range (single, range like '{po.StartIdNumber}-{po.EndIdNumber}', or a comma list)."
-                    : string.Empty;
-                return new CreateQrCodeResponseDto { Message = $"ID number(s) are required for Component Type 'ID'.{rangeHint}" };
-            }
-            if (!isIdType && quantity == null)
-            {
-                return new CreateQrCodeResponseDto { Message = $"Quantity is required for Component Type '{componentTypeRecord.ComponentType}'." };
+                return new CreateQrCodeResponseDto
+                {
+                    Message = "ID components need a Production Order number, because the ID numbers come from that order's ID range. Ask the user for it."
+                };
             }
 
-            if (isIdType && po.StartIdNumber.HasValue && po.EndIdNumber.HasValue)
+            // Out-of-range ID numbers are rejected straight away; missing values are collected below so the user is
+            // asked for everything that is still needed in ONE message instead of one question per turn.
+            if (isIdType && !string.IsNullOrWhiteSpace(idNumbers) && idRange?.Start != null && idRange.End != null)
             {
                 try
                 {
-                    var (_, reqStart, reqEnd) = ParseIdNumberRange(idNumbers!);
-                    if (reqStart < po.StartIdNumber.Value || reqEnd > po.EndIdNumber.Value)
+                    var (_, reqStart, reqEnd) = ParseIdNumberRange(idNumbers);
+                    if (reqStart < idRange.Start.Value || reqEnd > idRange.End.Value)
                     {
-                        return new CreateQrCodeResponseDto { Message = $"ID number(s) '{idNumbers}' fall outside this Production Order's valid range ({po.StartIdNumber}-{po.EndIdNumber}). Please specify ID number(s) within that range." };
+                        return new CreateQrCodeResponseDto { Message = $"ID number(s) '{idNumbers}' fall outside this Production Order's valid range ({idRange.Start}-{idRange.End}). Please specify ID number(s) within that range." };
                     }
                 }
                 catch (FormatException ex)
@@ -998,69 +1464,92 @@ namespace Precheck.Host.Agents
             }
 
             // IR number is mandatory on the QR Code form and is stored against every generated QR code.
+            // On the standard (drawing number) path every IR/MSN number is offered, not only those of this drawing.
             var availableIrNumbers = (await _commonService.IRNumberByDrawingNumberService(new GetIRNumberByDrawingNumberRequest
             {
-                DrawingNumber = po.DrawingNumber,
-                Productionseries = po.ProductionSeries
+                DrawingNumber = useStandardPath ? null : drawingName,
+                Productionseries = useStandardPath ? null : seriesName
             })).Where(r => r.Id != null && !string.IsNullOrWhiteSpace(r.IrNumber)).ToList();
-
-            if (string.IsNullOrWhiteSpace(irNumber))
-            {
-                var listing = availableIrNumbers.Count > 0
-                    ? $" Available IR numbers: {string.Join(", ", availableIrNumbers.Select(r => r.IrNumber).Distinct())}."
-                    : " No IR numbers exist yet for this drawing/series - create one first.";
-                return new CreateQrCodeResponseDto { Message = $"An IR number is required to generate a QR code - ask the user which one to link.{listing}" };
-            }
-
-            var selectedIr = availableIrNumbers.FirstOrDefault(r => string.Equals(r.IrNumber, irNumber.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (selectedIr == null)
-            {
-                var listing = availableIrNumbers.Count > 0
-                    ? $" Available IR numbers: {string.Join(", ", availableIrNumbers.Select(r => r.IrNumber).Distinct())}."
-                    : string.Empty;
-                return new CreateQrCodeResponseDto { Message = $"IR number '{irNumber}' was not found for drawing '{po.DrawingNumber}' / series '{po.ProductionSeries}'.{listing}" };
-            }
 
             // MSN number is also mandatory on the form, but "NA" is a valid answer (nothing is linked).
             var availableMsnNumbers = (await _commonService.MSNNumberByDrawingNumberService(new GetMSNNumberByDrawingNumberRequest
             {
-                DrawingNumber = po.DrawingNumber,
-                Productionseries = po.ProductionSeries
+                DrawingNumber = useStandardPath ? null : drawingName,
+                Productionseries = useStandardPath ? null : seriesName
             })).Where(r => r.Id != null && !string.IsNullOrWhiteSpace(r.MsnNumber)).ToList();
 
+            var irListing = availableIrNumbers.Count > 0
+                ? $"available: {string.Join(", ", availableIrNumbers.Select(r => r.IrNumber).Distinct())}"
+                : "none exist yet for this drawing/series - one must be created first";
+            var msnListing = availableMsnNumbers.Count > 0
+                ? $"available: {string.Join(", ", availableMsnNumbers.Select(r => r.MsnNumber).Distinct())}, or 'NA' if none applies"
+                : "none exist for this drawing/series - the user can answer 'NA'";
+
+            var stillNeeded = new List<string>();
+            if (isIdType && string.IsNullOrWhiteSpace(idNumbers))
+            {
+                stillNeeded.Add(idRange?.Start != null && idRange.End != null
+                    ? $"ID number(s) - this Production Order covers {idRange.Start} to {idRange.End}; a single number, a range like '{idRange.Start}-{idRange.End}', or a comma list"
+                    : "ID number(s)");
+            }
+            if (useStandardPath)
+            {
+                if (qrRows.Count == 0 || qrRows.Any(r => r.Quantity <= 0))
+                {
+                    stillNeeded.Add("for each QR code to generate (one set per QR code): quantity (required), ID No, Size, MRIR " +
+                                    "and Heat/Lot/Batch No - the last four are optional and may be left blank");
+                }
+            }
+            else if (!isIdType && quantity == null)
+            {
+                stillNeeded.Add("quantity");
+            }
+            if (string.IsNullOrWhiteSpace(irNumber))
+            {
+                stillNeeded.Add($"IR number ({irListing})");
+            }
             if (string.IsNullOrWhiteSpace(msnNumber))
             {
-                var listing = availableMsnNumbers.Count > 0
-                    ? $" Available MSN numbers: {string.Join(", ", availableMsnNumbers.Select(r => r.MsnNumber).Distinct())}, or 'NA'."
-                    : " No MSN numbers exist for this drawing/series - the user can answer 'NA'.";
-                return new CreateQrCodeResponseDto { Message = $"An MSN number is required to generate a QR code - ask the user which one to link.{listing}" };
+                stillNeeded.Add($"MSN number ({msnListing})");
+            }
+            if (stillNeeded.Count > 0)
+            {
+                return new CreateQrCodeResponseDto
+                {
+                    Message = "Not generated yet - ask the user for ALL of these in ONE message (show the options given, never pick for them): " +
+                              string.Join("; ", stillNeeded) + "."
+                };
+            }
+
+            var selectedIr = availableIrNumbers.FirstOrDefault(r => string.Equals(r.IrNumber, irNumber!.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (selectedIr == null)
+            {
+                return new CreateQrCodeResponseDto { Message = $"IR number '{irNumber}' was not found for drawing '{drawingName}' / series '{seriesName}' ({irListing})." };
             }
 
             MSNNumbers? selectedMsn = null;
-            if (!string.Equals(msnNumber.Trim(), "NA", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(msnNumber!.Trim(), "NA", StringComparison.OrdinalIgnoreCase))
             {
                 selectedMsn = availableMsnNumbers.FirstOrDefault(r => string.Equals(r.MsnNumber, msnNumber.Trim(), StringComparison.OrdinalIgnoreCase));
                 if (selectedMsn == null)
                 {
-                    var listing = availableMsnNumbers.Count > 0
-                        ? $" Available MSN numbers: {string.Join(", ", availableMsnNumbers.Select(r => r.MsnNumber).Distinct())}, or 'NA'."
-                        : " Only 'NA' is possible.";
-                    return new CreateQrCodeResponseDto { Message = $"MSN number '{msnNumber}' was not found for drawing '{po.DrawingNumber}' / series '{po.ProductionSeries}'.{listing}" };
+                    return new CreateQrCodeResponseDto { Message = $"MSN number '{msnNumber}' was not found for drawing '{drawingName}' / series '{seriesName}' ({msnListing})." };
                 }
             }
 
             var preview = new CreateQrCodeResponseDto
             {
-                ProductionOrderNumber = productionOrderNumber,
-                PartNumber = po.DrawingNumber,
-                ItemCode = po.LnItemCode,
-                ProductionSeries = po.ProductionSeries,
+                ProductionOrderNumber = poNumber,
+                PartNumber = drawingName,
+                ItemCode = itemCode,
+                ProductionSeries = seriesName,
                 IrNumber = selectedIr.IrNumber,
                 MsnNumber = selectedMsn?.MsnNumber ?? "NA",
-                Unit = po.UnitName,
+                Unit = unitName,
                 ComponentType = componentTypeRecord.ComponentType,
                 IdNumbers = isIdType ? idNumbers : null,
-                Quantity = isIdType ? null : quantity,
+                Quantity = isIdType ? null : useStandardPath ? qrRows.Sum(r => r.Quantity) : quantity,
+                Rows = useStandardPath ? qrRows : null,
                 BuildNumber = buildNumber,
                 OperationNumber = operationNumber,
                 Remark = remark
@@ -1075,15 +1564,52 @@ namespace Precheck.Host.Agents
             var (createdBy, _, _) = GetCurrentUserClaims();
             try
             {
+                if (useStandardPath)
+                {
+                    var standardResults = await _qrCodeService.InsertStandardQRCodeDetailsAsync(new StandardQRDataDto
+                    {
+                        ProductionSeriesId = seriesId,
+                        DrawingNumberId = drawingId,
+                        ComponentTypeId = componentTypeRecord.ID,
+                        IrNumberId = selectedIr.Id,
+                        MsnNumberId = selectedMsn?.Id,
+                        UnitId = unitId,
+                        Quantity = qrRows.Sum(r => r.Quantity),
+                        OperationNo = operationNumber,
+                        Remarks = remark,
+                        CreatedBy = createdBy,
+                        IsActive = true,
+                        MatrixRows = qrRows.Select((r, i) => new QrMatrixRowDto
+                        {
+                            SrNo = i + 1,
+                            IdNo = r.IdNo,
+                            Quantity = r.Quantity,
+                            Size = r.Size,
+                            Mirir = r.Mrir,
+                            HeatLotBatchNo = r.HeatLotBatchNo
+                        }).ToList()
+                    });
+
+                    preview.GeneratedQrCodeNumbers = standardResults
+                        .Where(r => r != null && r.IsNewQrCode)
+                        .Select(r => r!.QrCodeNumber)
+                        .ToList();
+                    preview.Created = preview.GeneratedQrCodeNumbers.Count > 0;
+                    preview.Message = preview.Created
+                        ? $"Generated {preview.GeneratedQrCodeNumbers.Count} new QR code(s) (stored in automatically): {string.Join(", ", preview.GeneratedQrCodeNumbers)}."
+                        : "No QR codes were generated.";
+                    return preview;
+                }
+
                 var results = await _qrCodeService.InsertQRCodeDetailsAsync(new QRCodeDetailsDto
                 {
-                    ProductionSeriesId = po.ProdSeriesId.Value,
-                    DrawingNumberId = po.DrawingNumberId.Value,
+                    ProductionSeriesId = seriesId,
+                    DrawingNumberId = drawingId,
                     ComponentTypeId = componentTypeRecord.ID,
                     IrNumberId = selectedIr.Id,
                     MsnNumberId = selectedMsn?.Id,
-                    UnitId = po.UnitId,
-                    ProductionOrderNumber = productionOrderNumber,
+                    UnitId = unitId,
+                    ProductionOrderNumber = poNumber,
                     CustomIdRange = isIdType ? idNumbers : null,
                     Quantity = isIdType ? 1 : quantity!.Value,
                     BuildNumber = buildNumber,
@@ -1118,6 +1644,9 @@ namespace Precheck.Host.Agents
 
             return preview;
         }
+
+        // A Production Order's own ID number range (null when it has none).
+        private sealed record MasterOrderRange(int? Start, int? End);
 
         private static string? TryParsePrecheckValidationMessage(string rawMessage)
         {

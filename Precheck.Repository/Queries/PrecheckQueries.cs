@@ -1009,9 +1009,9 @@ INNER JOIN
 LEFT JOIN
     tbl_productionseries tps ON tps.id = pd.prodseriesid
 LEFT JOIN
-    tbl_drawingnomenclaturemapping nommap ON pd.drawingnumberid = nommap.drawingnumberid
+    tbl_drawingnomenclaturemapping nommap ON pd.drawingnumberid = nommap.drawingnumberid AND nommap.isactive = 1
 LEFT JOIN
-    tbl_nomenclature nom ON nommap.nomenclatureid = nom.id
+    tbl_nomenclature nom ON nommap.nomenclatureid = nom.id AND nom.isactive = 1
 LEFT JOIN
     tbl_users u ON CAST(pd.createdby AS VARCHAR(MAX)) = u.id
 WHERE

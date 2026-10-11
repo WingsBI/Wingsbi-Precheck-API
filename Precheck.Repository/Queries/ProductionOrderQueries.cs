@@ -133,6 +133,7 @@ namespace Precheck.Repository.Queries
                 pom.prodseriesid,
                 ps.productionseries,
                 pom.startidnumber,
+                pom.endidnumber AS EndIdNumber,
                 pom.quantity,
                 pom.drawingnumberid,
                 dn.drawingnumber,

@@ -41,6 +41,7 @@ namespace Precheck.Repository.Repository.CommonRepository
         Task<DocumentTypes?> GetDocumnetTypeByName(string query);
         Task<ProductionOrderModel> GetProductionOrderByName(string ProductionOrder);
         Task<List<UnitModel>> GetUnitByName();
+        Task<UnitModel?> GetUnitByDrawingNumberId(int drawingNumberId);
         Task<List<ShapeModel>> GetAllShapes();
         Task<AssemblyNumbers?> GetAssemblyById(int assemblyId);
         Task<List<AssemblyNumbers?>> GetAllAssembly();

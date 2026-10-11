@@ -53,6 +53,8 @@ namespace Precheck.Service.Service.QRCodeService
         Task<List<string>> GetAllFanManSerialNumbersServiceAsync();
         Task<byte[]> ExportConsumedInServiceAsync(ConsumedInRequestDto request);
         Task<int> BulkUpdateQRCodeService(BulkUpdateQRCodeRequestDto request);
+        Task<List<int>> GetIdNumbersWithQrCodeService(string productionOrderNumber, int drawingNumberId, int productionSeriesId);
+        Task<List<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>> GetQrCodeStatusCountsService();
 
         Task<GetAvailableQrPagedResponse> GetAvailableQrPagedService(GetAvailableQrRequest request, int pageNumber, int pageSize);
     }

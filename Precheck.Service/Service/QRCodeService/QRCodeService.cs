@@ -1437,6 +1437,12 @@ namespace Precheck.Service.Service.QRCodeService
             CreateCell(row, colIndex++, item.RejectionReason, borderStyle);
         }
 
+        public Task<List<int>> GetIdNumbersWithQrCodeService(string productionOrderNumber, int drawingNumberId, int productionSeriesId)
+            => _qrCodeRepository.GetIdNumbersWithQrCodeAsync(productionOrderNumber, drawingNumberId, productionSeriesId);
+
+        public Task<List<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>> GetQrCodeStatusCountsService()
+            => _qrCodeRepository.GetQrCodeStatusCountsAsync();
+
         public async Task<int> BulkUpdateQRCodeService(BulkUpdateQRCodeRequestDto request)
         {
             try

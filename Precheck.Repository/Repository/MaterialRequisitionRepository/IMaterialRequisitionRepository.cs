@@ -12,6 +12,7 @@ namespace Precheck.Repository.Repository.MaterialRequisitionRepository
     {
         Task<List<MaterialRequisitionResponse>> GetMaterialRequisitions();
         Task<List<SwappingDetailsResponse>> GetSwappingDetails();
+        Task<List<Precheck.Models.DTOs.Chatbot.StatusCountDto>> GetMaterialRequisitionStatusCountsAsync();
         Task<List<MaterialRequisitionResponse>> GetMaterialRequisitionsByStatus(string status,int statusId);
         Task<int> UpdateMaterialRequisition(UpdateMaterialRequisitionRequestDto request, int modifiedBy);
         Task<int> CancelMaterialRequisition(CancelMaterialRequisitionRequestDto request, int modifiedBy);

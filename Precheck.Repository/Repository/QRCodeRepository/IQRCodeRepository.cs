@@ -38,6 +38,8 @@ namespace Precheck.Repository.Repository.QRCodeRepository
         Task<bool> ComponentStoreIn(string QRCodeNumber);
 
         Task<QRCodeDetailsResponseDto> ValidateQrCode(int productionseriesid, int idnumbers, int drawingnumberid, string? productionOrderNumber);
+        Task<List<int>> GetIdNumbersWithQrCodeAsync(string productionOrderNumber, int drawingNumberId, int productionSeriesId);
+        Task<List<Precheck.Models.DTOs.QRCodeDetails.QrCodeStatusCountDto>> GetQrCodeStatusCountsAsync();
 
         Task<List<ConsumedInResponseDto>> ConsumedInRepoAsync(ConsumedInRequestDto request);
 
