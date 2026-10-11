@@ -9,8 +9,8 @@ namespace Precheck.Models.DTOs.Chatbot
         public string? ProductionOrderNumber { get; set; }
         public string? ProductionSeries { get; set; }
         public string? DrawingNumber { get; set; }
-        // The drawing's mapped component type (ID / FIM / SI / BATCH). Informational: it does not stop a user generating
-        // 'ID' QR codes for this Production Order.
+        // The component type of the Production Order's drawing (ID / FIM / SI / BATCH): the type to use. It was once
+        // treated as informational only; the user is no longer asked for it.
         public string? ComponentType { get; set; }
         public int? StartIdNumber { get; set; }
         public int? EndIdNumber { get; set; }
@@ -48,6 +48,15 @@ namespace Precheck.Models.DTOs.Chatbot
         public int PendingLines { get; set; }
         public decimal RequiredQuantity { get; set; }
         public string? PrecheckStatus { get; set; }
+    }
+
+    // A capped page of precheck records plus how many matched in total, so a broad search can't flood the chat.
+    public class PrecheckRecordSearchResultDto
+    {
+        public int TotalRecords { get; set; }
+        public int ShownRecords { get; set; }
+        public List<PrecheckRecordSummaryDto> Records { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
     }
 
     public class QrCodeStatusSummaryDto

@@ -66,10 +66,9 @@ namespace Precheck.Host.Agents
             "missing, ask for it (nothing else yet). (2) As soon as you have it, " +
             "call get_production_order_id_numbers BEFORE asking anything about ID numbers or quantity - it returns the ID " +
             "numbers that Production Order really covers (StartIdNumber-EndIdNumber), which of them already have a QR code, " +
-            "and the drawing's mapped ComponentType (informational only - a PO that has an ID range can still have 'ID' " +
-            "QR codes generated, so never decide the type for the user from it). (3) If the user has not said which " +
-            "component type they want, ask in ONE message: which type (ID, FIM, SI or BATCH), and mention the PO's real " +
-            "ID range and which ID numbers are still free so they can pick 'ID'. For 'ID' type, ask which ID numbers to " +
+            "and the ComponentType of the Production Order's drawing. The Production Order gives the drawing and the drawing " +
+            "gives the component type, so NEVER ask the user which component type it is: use that ComponentType (only if " +
+            "the user explicitly names a different type, follow them). (3) If the type is 'ID', ask which ID numbers to " +
             "generate, offering ONLY real values from that result: state " +
             "the PO's range, say which ID numbers already have a QR code, and suggest IdNumbersWithoutQrCode; every " +
             "example you give must come from the tool result - NEVER invent example ID numbers (like 1-5) and never offer " +
@@ -83,7 +82,9 @@ namespace Precheck.Host.Agents
             "just picks one. If QR generation is blocked because Precheck isn't complete for a component, " +
             "tell the user exactly which component(s) still need precheck - never fabricate a QR code number yourself. " +
             "You can also MAKE PRECHECK (scan and verify one component against a target assembly's BOM) using " +
-            "make_precheck (its assembly ID number must be one of the Production Order's real ID numbers - look the range " +
+            "make_precheck (never ask the user for the component type - it is read from the QR code; for a FIM, SI or BATCH " +
+            "component ALWAYS ask how many they want to consume and never assume it, telling them how many the line still " +
+            "needs and the QR code has left; an 'ID' component is always 1 and needs no quantity; its assembly ID number must be one of the Production Order's real ID numbers - look the range " +
             "up with get_production_order_id_numbers instead of guessing). The target assembly is identified by Production Order number + Production Series + its " +
             "own assembly ID number + its own assembly drawing number; the component being scanned has its own, " +
             "separate component drawing number and QR code - do not confuse the two drawing numbers. Prefer calling " +
@@ -110,6 +111,20 @@ namespace Precheck.Host.Agents
             "failure/error message it returned to the user, as a clear list, exactly as worded (they already say what is " +
             "wrong and in which row); if rows failed, tell them to correct those rows and attach the file again; never " +
             "claim success for rows or scripts that failed, and never invent rows. " +
+            "NEVER REPORT AN ACTION AS DONE WITHOUT A TOOL RESULT: you may only say something was created, generated, " +
+            "verified, consumed, updated or completed if a tool you called in THIS turn returned that result (Created=true " +
+            "or a success message). When the user answers 'confirm'/'yes' to a preview, you MUST call the same write tool " +
+            "again with confirmed=true and exactly the values you previewed - never reply with a result you did not get " +
+            "from the tool, and if the tool returns a message instead of success, report that message. " +
+            "WHAT THE SYSTEM DOES NOT KNOW - say so plainly instead of guessing: (a) Production Orders have no due date " +
+            "or deadline, so you cannot tell which are 'delayed' or 'overdue'; say that, and offer the longest-waiting " +
+            "pending orders instead (call get_production_order_status with precheckStatus=1 and list the ~10 oldest by " +
+            "created date with their age in days - never say an order 'may be delayed'). (b) Only the CURRENT status is " +
+            "stored, not a history of status changes, so 'status history' cannot be answered; offer the current status of " +
+            "recent orders (newest by created date) and their precheck records. (c) You cannot draw charts or graphs; for " +
+            "'analytics', 'dashboard' or 'line graph' requests call get_analytics_summary and give the numbers as text, " +
+            "saying a chart is not possible here. Do not ask the user to define 'recent' - use the latest 10 by created " +
+            "date. " +
             "MATERIAL REQUISITIONS: a requisition is raised when a component is rejected at precheck. Its status moves " +
             "Pending-Planner (planner reviews) -> Pending-Store (store handles) -> Completed; a cancelled one shows as " +
             "'Request- Deleted'. Use get_material_requisitions (with its filters) to list them, " +
@@ -136,6 +151,7 @@ namespace Precheck.Host.Agents
             "\"Find ...\", \"Get ...\" (e.g. \"Give me the precheck records for PO-2026-0026\", \"How many QR codes " +
             "are available?\", \"List the pending prechecks\"). Never address the user (no \"Do you want...\" / \"Would you like...\"), never suggest " +
             "something that needs an identifier the user hasn't given, and never mention this block in your text. " +
+            "Never suggest charts/graphs, delayed/overdue orders or status history (not available). " +
             "Suggestions must NEVER contain made-up identifiers (drawing numbers, part numbers, Production Order numbers, " +
             "QR code numbers, IR/MSN numbers): use only identifiers that appeared in the user's messages or in a tool " +
             "result, and when you are asking the user for an identifier, omit the block. " +
@@ -212,6 +228,7 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.CreateStandardMsnNumberAsync, name: "create_standard_msn_number"),
                 AIFunctionFactory.Create(_tools.GetProductionOrderIdNumbersAsync, name: "get_production_order_id_numbers"),
                 AIFunctionFactory.Create(_tools.GetQrCodeStatusSummaryAsync, name: "get_qr_code_status_summary"),
+                AIFunctionFactory.Create(_tools.GetAnalyticsSummaryAsync, name: "get_analytics_summary"),
                 AIFunctionFactory.Create(_tools.GetConsumedQrCodesAsync, name: "get_consumed_qr_codes"),
                 AIFunctionFactory.Create(_tools.GetQrCodeConsumptionOptionsAsync, name: "get_qr_code_consumption_options"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
