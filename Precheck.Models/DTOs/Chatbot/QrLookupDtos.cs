@@ -9,8 +9,8 @@ namespace Precheck.Models.DTOs.Chatbot
         public string? ProductionOrderNumber { get; set; }
         public string? ProductionSeries { get; set; }
         public string? DrawingNumber { get; set; }
-        // The drawing's mapped component type (ID / FIM / SI / BATCH). Informational: it does not stop a user generating
-        // 'ID' QR codes for this Production Order.
+        // The component type of the Production Order's drawing (ID / FIM / SI / BATCH): the type to use. It was once
+        // treated as informational only; the user is no longer asked for it.
         public string? ComponentType { get; set; }
         public int? StartIdNumber { get; set; }
         public int? EndIdNumber { get; set; }

@@ -1092,8 +1092,8 @@ namespace Precheck.Host.Agents
         [Description("Get the ID numbers a Production Order actually covers (start-end range) and which of them already have a " +
             "QR code, so only real, still-available ID numbers are offered. ALWAYS call this as soon as you have a Production " +
             "Order number and the user wants to generate QR codes (or asks which ID numbers a PO has) - BEFORE asking the " +
-            "user for ID numbers. Also returns the drawing's mapped ComponentType (informational: the user can still choose " +
-            "a different component type for QR generation).")]
+            "user for ID numbers. Also returns the ComponentType of the Production Order's drawing: that is the component " +
+            "type to use (ID -> ask for ID numbers, FIM/SI/BATCH -> ask for a quantity) - never ask the user for it.")]
         public async Task<ProductionOrderIdNumbersDto> GetProductionOrderIdNumbersAsync(
             [Description("The exact Production Order number.")] string productionOrderNumber)
         {
@@ -1356,7 +1356,8 @@ namespace Precheck.Host.Agents
                 seriesName = po.ProductionSeries;
                 unitId = po.UnitId;
                 unitName = po.UnitName;
-                defaultComponentType = null;
+                // The Production Order gives the drawing, and the drawing gives the component type - no need to ask.
+                defaultComponentType = po.ComponentType;
                 idRange = new MasterOrderRange(po.StartIdNumber, po.EndIdNumber);
             }
             else
@@ -1711,8 +1712,11 @@ namespace Precheck.Host.Agents
             [Description("The target assembly's own drawing number.")] string assemblyDrawingNumber,
             [Description("The specific component's drawing number - the BOM line being scanned/verified.")] string componentDrawingNumber,
             [Description("The scanned component's exact QR code number.")] string qrCodeNumber,
-            [Description("Component Type: ID, FIM, SI, or BATCH.")] string componentType,
-            [Description("The quantity being consumed from this scanned component.")] decimal updatedQuantity,
+            [Description("Component Type: ID, FIM, SI, or BATCH. Omit it - it is read from the QR code. Never ask the user for it.")] string? componentType,
+            [Description("How many units to consume from the scanned QR code. REQUIRED for FIM, SI and BATCH components: " +
+                "always ask the user how many they want to consume, never assume or default it (omit it only to get the " +
+                "limits - the tool then tells you how many the line needs and the QR code has left). Not needed for 'ID' " +
+                "components, which are always 1.")] decimal? updatedQuantity,
             [Description("Remarks/notes. Omit if not specified.")] string? remarks,
             [Description("Set true ONLY after the user has explicitly confirmed the previewed details.")] bool confirmed)
         {
@@ -1749,11 +1753,26 @@ namespace Precheck.Host.Agents
                 return new MakePrecheckResponseDto { Message = $"Component drawing number '{componentDrawingNumber}' was not found." };
             }
 
-            var componentTypeRecord = await _commonService.ComponentTypeByNameService(componentType);
+            // The precheck row is updated from the scanned QR's own details (drawing, unit, IR/MSN/MRIR, ID),
+            // exactly as the Excel import does - the API's UPDATE overwrites those columns, so leaving them
+            // out would blank them on the row.
+            var qrDetails = await _qrCodeService.GetQRCodeDetailsService(qrCodeNumber, null);
+            if (qrDetails == null)
+            {
+                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' was not found." };
+            }
+            if (qrDetails.DrawingNumberId != componentDrawing.Id)
+            {
+                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' is tagged for drawing '{qrDetails.DrawingNumber}', not '{componentDrawing.DrawingNumber}'. Scan a QR code that belongs to the component drawing." };
+            }
+
+            // The component type comes from the QR code itself, so the user is never asked for it.
+            var typeName = string.IsNullOrWhiteSpace(componentType) ? qrDetails.ComponentType : componentType;
+            var componentTypeRecord = await _commonService.ComponentTypeByNameService(typeName);
             if (componentTypeRecord == null)
             {
                 var validTypes = await _commonService.ComponentTypeService();
-                return new MakePrecheckResponseDto { Message = $"Component Type '{componentType}' not recognized. Valid types: {string.Join(", ", validTypes.Select(t => t.ComponentType))}." };
+                return new MakePrecheckResponseDto { Message = $"Component Type '{typeName}' not recognized. Valid types: {string.Join(", ", validTypes.Select(t => t.ComponentType))}." };
             }
 
             // The underlying UPDATE_PROJECT_PRECHECK_DETAIL query sets isprecheckcomplete purely from
@@ -1774,23 +1793,33 @@ namespace Precheck.Host.Agents
                 return new MakePrecheckResponseDto { Message = $"No pending Precheck line found for component drawing '{componentDrawing.DrawingNumber}' on this assembly (PO {productionOrderNumber}, Series {productionSeries}, Assembly ID {assemblyIdNumber}). It may already be complete, or was never set up as part of this assembly's BOM." };
             }
 
-            // The precheck row is updated from the scanned QR's own details (drawing, unit, IR/MSN/MRIR, ID),
-            // exactly as the Excel import does - the API's UPDATE overwrites those columns, so leaving them
-            // out would blank them on the row.
-            var qrDetails = await _qrCodeService.GetQRCodeDetailsService(qrCodeNumber, null);
-            if (qrDetails == null)
+            var currentRemainingQuantity = targetLine.RemainingQuantity ?? targetLine.Quantity ?? 0;
+            var qrRemainingQuantity = qrDetails.RemainingQuantity ?? qrDetails.Quantity ?? 0;
+
+            // FIM / SI / BATCH are consumed by quantity, and the user decides how many - never assume it. 'ID'
+            // components are single units (1).
+            var isIdComponent = string.Equals(componentTypeRecord.ComponentType, "ID", StringComparison.OrdinalIgnoreCase);
+            if (!isIdComponent && (updatedQuantity == null || updatedQuantity <= 0))
             {
-                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' was not found." };
-            }
-            if (qrDetails.DrawingNumberId != componentDrawing.Id)
-            {
-                return new MakePrecheckResponseDto { Message = $"QR code '{qrCodeNumber}' is tagged for drawing '{qrDetails.DrawingNumber}', not '{componentDrawing.DrawingNumber}'. Scan a QR code that belongs to the component drawing." };
+                return new MakePrecheckResponseDto
+                {
+                    Message = $"How many do you want to consume? Ask the user for the quantity (never assume it). This is a {componentTypeRecord.ComponentType} component: " +
+                              $"the BOM line still needs {currentRemainingQuantity}, and QR code {qrCodeNumber} has {qrRemainingQuantity} remaining."
+                };
             }
 
-            var currentRemainingQuantity = targetLine.RemainingQuantity ?? targetLine.Quantity ?? 0;
+            var requestedQuantity = isIdComponent ? 1 : updatedQuantity!.Value;
+            if (requestedQuantity > qrRemainingQuantity)
+            {
+                return new MakePrecheckResponseDto
+                {
+                    Message = $"QR code {qrCodeNumber} has only {qrRemainingQuantity} remaining, so {requestedQuantity} cannot be consumed. Ask the user for a quantity of {qrRemainingQuantity} or less."
+                };
+            }
+
             // Never consume more than the line still needs; a smaller scan leaves a shortfall that is carried
             // forward to a new row after the scan (same as the Excel import).
-            var consumedQuantity = Math.Min(updatedQuantity, currentRemainingQuantity);
+            var consumedQuantity = Math.Min(requestedQuantity, currentRemainingQuantity);
             var newRemainingQuantity = currentRemainingQuantity - consumedQuantity;
 
             var preview = new MakePrecheckResponseDto
@@ -1812,6 +1841,10 @@ namespace Precheck.Host.Agents
                 preview.Message = newRemainingQuantity == 0
                     ? "Review the details above and confirm to verify (scan) this component. This will fully consume the required quantity and mark the line complete."
                     : $"Review the details above and confirm to verify (scan) this component. {newRemainingQuantity} will remain outstanding on this line after this scan (not yet complete).";
+                if (requestedQuantity > currentRemainingQuantity)
+                {
+                    preview.Message += $" Note: {requestedQuantity} was requested but the line only needs {currentRemainingQuantity}, so {consumedQuantity} will be consumed.";
+                }
                 return preview;
             }
 

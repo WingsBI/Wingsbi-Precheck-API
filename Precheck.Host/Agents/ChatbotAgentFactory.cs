@@ -66,10 +66,9 @@ namespace Precheck.Host.Agents
             "missing, ask for it (nothing else yet). (2) As soon as you have it, " +
             "call get_production_order_id_numbers BEFORE asking anything about ID numbers or quantity - it returns the ID " +
             "numbers that Production Order really covers (StartIdNumber-EndIdNumber), which of them already have a QR code, " +
-            "and the drawing's mapped ComponentType (informational only - a PO that has an ID range can still have 'ID' " +
-            "QR codes generated, so never decide the type for the user from it). (3) If the user has not said which " +
-            "component type they want, ask in ONE message: which type (ID, FIM, SI or BATCH), and mention the PO's real " +
-            "ID range and which ID numbers are still free so they can pick 'ID'. For 'ID' type, ask which ID numbers to " +
+            "and the ComponentType of the Production Order's drawing. The Production Order gives the drawing and the drawing " +
+            "gives the component type, so NEVER ask the user which component type it is: use that ComponentType (only if " +
+            "the user explicitly names a different type, follow them). (3) If the type is 'ID', ask which ID numbers to " +
             "generate, offering ONLY real values from that result: state " +
             "the PO's range, say which ID numbers already have a QR code, and suggest IdNumbersWithoutQrCode; every " +
             "example you give must come from the tool result - NEVER invent example ID numbers (like 1-5) and never offer " +
@@ -83,7 +82,9 @@ namespace Precheck.Host.Agents
             "just picks one. If QR generation is blocked because Precheck isn't complete for a component, " +
             "tell the user exactly which component(s) still need precheck - never fabricate a QR code number yourself. " +
             "You can also MAKE PRECHECK (scan and verify one component against a target assembly's BOM) using " +
-            "make_precheck (its assembly ID number must be one of the Production Order's real ID numbers - look the range " +
+            "make_precheck (never ask the user for the component type - it is read from the QR code; for a FIM, SI or BATCH " +
+            "component ALWAYS ask how many they want to consume and never assume it, telling them how many the line still " +
+            "needs and the QR code has left; an 'ID' component is always 1 and needs no quantity; its assembly ID number must be one of the Production Order's real ID numbers - look the range " +
             "up with get_production_order_id_numbers instead of guessing). The target assembly is identified by Production Order number + Production Series + its " +
             "own assembly ID number + its own assembly drawing number; the component being scanned has its own, " +
             "separate component drawing number and QR code - do not confuse the two drawing numbers. Prefer calling " +
