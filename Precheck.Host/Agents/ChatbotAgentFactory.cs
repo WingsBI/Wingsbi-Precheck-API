@@ -131,6 +131,9 @@ namespace Precheck.Host.Agents
             "get_material_requisition_details for one request number, and get_material_requisition_status_summary for " +
             "counts per status (it includes cancelled ones). get_swapping_details answers swap questions. These are " +
             "read-only: you cannot create, update, cancel or swap anything. " +
+            "STORE IN A QR CODE: when the user asks to store in a QR code and gives its number, call store_in_qr_code right " +
+            "away (their request is the instruction) and report its result exactly: say it was stored in only if " +
+            "StoredIn is true, otherwise give its Message (e.g. already stored in, already consumed, not found). " +
             "CAN A QR CODE BE CONSUMED: when the user gives a QR code number and asks whether it can be consumed / used, " +
             "or in which Production Order, call get_qr_code_consumption_options and answer with the Production Order " +
             "numbers (and the ID numbers in each) it returns - not just the QR code's status. If it cannot be consumed, " +
@@ -230,6 +233,7 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.GetQrCodeStatusSummaryAsync, name: "get_qr_code_status_summary"),
                 AIFunctionFactory.Create(_tools.GetAnalyticsSummaryAsync, name: "get_analytics_summary"),
                 AIFunctionFactory.Create(_tools.GetConsumedQrCodesAsync, name: "get_consumed_qr_codes"),
+                AIFunctionFactory.Create(_tools.StoreInQrCodeAsync, name: "store_in_qr_code"),
                 AIFunctionFactory.Create(_tools.GetQrCodeConsumptionOptionsAsync, name: "get_qr_code_consumption_options"),
                 AIFunctionFactory.Create(_tools.CreateQrCodeAsync, name: "create_qr_code"),
                 AIFunctionFactory.Create(_tools.MakePrecheckAsync, name: "make_precheck"),

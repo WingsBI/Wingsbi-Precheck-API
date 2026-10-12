@@ -812,7 +812,7 @@ ON
     ppd.drawingnumberid = dn.id
 LEFT JOIN
      tbl_drawingnomenclaturemapping nommap
-     ON dn.id = nommap.drawingnumberid
+     ON dn.id = nommap.drawingnumberid AND nommap.isactive = 1
 LEFT JOIN
      tbl_nomenclature nom
      ON nommap.nomenclatureid = nom.id

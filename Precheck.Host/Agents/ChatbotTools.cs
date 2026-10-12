@@ -1266,6 +1266,79 @@ namespace Precheck.Host.Agents
             return result;
         }
 
+        [Description("STORE IN a QR code: move a generated QR code (status 'qrcodegenerated') into stock so it becomes " +
+            "'readyforconsumption'. Call it when the user asks to store in / stock in a QR code and gives the QR code " +
+            "number - their request is the instruction, no extra confirmation. It checks the QR code first: it must exist, " +
+            "must not be consumed and must still be 'qrcodegenerated'; otherwise nothing changes and Message says why " +
+            "(for example it is already stored in). One QR code per call; for several QR codes call it once for each, or " +
+            "tell the user a spreadsheet can store in many at once. Report StoredIn from the result - never claim it was " +
+            "stored in unless StoredIn is true.")]
+        public async Task<QrStoreInResultDto> StoreInQrCodeAsync(
+            [Description("The exact QR code number to store in.")] string qrCodeNumber)
+        {
+            var number = qrCodeNumber?.Trim() ?? string.Empty;
+            var qr = await _qrCodeService.GetQRCodeDetailsService(number, null);
+
+            if (qr == null)
+            {
+                // Consumed QR codes are inactive, so the lookup above does not return them.
+                var consumed = (await _qrCodeService.GetConsumedQRCodeDetailsWithParameterService(new GetQRCodeRequestDto { QRCodeNumber = number })).FirstOrDefault();
+                return new QrStoreInResultDto
+                {
+                    QrCodeNumber = number,
+                    CurrentStatus = consumed?.QrCodeStatus,
+                    DrawingNumber = consumed?.DrawingNumber,
+                    Message = consumed != null
+                        ? "This QR code cannot be stored in: it has already been consumed."
+                        : $"QR code '{number}' was not found."
+                };
+            }
+
+            var result = new QrStoreInResultDto
+            {
+                QrCodeNumber = qr.QrCodeNumber,
+                PreviousStatus = qr.QrCodeStatus,
+                CurrentStatus = qr.QrCodeStatus,
+                DrawingNumber = qr.DrawingNumber,
+                ProductionSeries = qr.ProductionSeries,
+                ComponentType = qr.ComponentType,
+                Quantity = qr.Quantity,
+                RackLocation = qr.RackLocation,
+                StoreInDate = qr.StoreInDate
+            };
+
+            // Status ids: 1 = readyforconsumption (already stored in), 2 = consumed, 3 = qrcodegenerated (can be stored in).
+            if (qr.QrCodeStatusId == 1)
+            {
+                result.Message = "This QR code is already stored in (status 'readyforconsumption'); nothing was changed.";
+                return result;
+            }
+            if (qr.QrCodeStatusId != 3)
+            {
+                result.Message = $"This QR code cannot be stored in: its status is '{qr.QrCodeStatus}' (only 'qrcodegenerated' QR codes can be stored in).";
+                return result;
+            }
+
+            try
+            {
+                var updated = await _qrCodeService.ComponentStoreInService(number);
+                result.StoredIn = updated != null && updated.QrCodeStatusId == 1;
+                result.CurrentStatus = updated?.QrCodeStatus;
+                result.RackLocation = updated?.RackLocation ?? result.RackLocation;
+                result.StoreInDate = updated?.StoreInDate;
+                result.Message = result.StoredIn
+                    ? "QR code stored in successfully; it is now ready for consumption."
+                    : "The store-in did not change the QR code's status, so it was NOT stored in.";
+            }
+            catch (Exception ex)
+            {
+                // The service reports business rules (not eligible, already consumed ...) as plain exceptions.
+                result.Message = ex.Message;
+            }
+
+            return result;
+        }
+
         [Description("Get how many QR codes are in each status (readyforconsumption = available/in stock, consumed, " +
             "qrcodegenerated = generated but not stored in yet) and the total. Use this for ANY question about QR code counts " +
             "by status or a QR code summary/overview - e.g. 'how many QR codes are consumed', 'how many are available'. " +
