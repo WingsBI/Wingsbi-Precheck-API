@@ -32,7 +32,6 @@ namespace Precheck.Host.Agents
         private readonly IMaterialRequisitionService _materialRequisitionService;
         private readonly IIdentifierService _identifierService;
         private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly Precheck.Service.Service.AnalyticsService.IAnalyticsService _analyticsService;
 
         public ChatbotTools(
             ICommonService commonService,
@@ -41,10 +40,8 @@ namespace Precheck.Host.Agents
             IPrecheckService precheckService,
             IMaterialRequisitionService materialRequisitionService,
             IIdentifierService identifierService,
-            IHttpContextAccessor httpContextAccessor,
-            Precheck.Service.Service.AnalyticsService.IAnalyticsService analyticsService)
+            IHttpContextAccessor httpContextAccessor)
         {
-            _analyticsService = analyticsService;
             _commonService = commonService;
             _productionOrderService = productionOrderService;
             _qrCodeService = qrCodeService;
@@ -366,13 +363,6 @@ namespace Precheck.Host.Agents
         }
 
         private const int MaxPrecheckRecordsInChat = 40;
-
-        [Description("Get the dashboard/analytics numbers: Production Orders by precheck status (pending/partial/completed), " +
-            "QR codes by status (ready for consumption/generated/consumed), rejected components (material requisitions) and " +
-            "pending swaps. Use it for 'analytics', 'dashboard', 'overall summary', 'show the graph/chart' requests - give the " +
-            "figures as text, because charts cannot be drawn in this chat.")]
-        public Task<Precheck.Models.DTOs.Analytics.AnalyticsSummaryResponse> GetAnalyticsSummaryAsync()
-            => _analyticsService.GetSummaryAsync();
 
         [Description("Get available (verified, not-yet-consumed) components, filtered by an exact QR code OR by a " +
             "combination of free-text search, drawing number, Production Series, and/or status. Broader than " +

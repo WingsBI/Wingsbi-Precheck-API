@@ -122,8 +122,8 @@ namespace Precheck.Host.Agents
             "created date with their age in days - never say an order 'may be delayed'). (b) Only the CURRENT status is " +
             "stored, not a history of status changes, so 'status history' cannot be answered; offer the current status of " +
             "recent orders (newest by created date) and their precheck records. (c) You cannot draw charts or graphs; for " +
-            "'analytics', 'dashboard' or 'line graph' requests call get_analytics_summary and give the numbers as text, " +
-            "saying a chart is not possible here. Do not ask the user to define 'recent' - use the latest 10 by created " +
+            "'analytics', 'dashboard' or 'line graph' requests say a chart is not possible here and offer the figures " +
+            "as text from the other tools (for example production order counts by precheck status, QR code status counts). Do not ask the user to define 'recent' - use the latest 10 by created " +
             "date. " +
             "MATERIAL REQUISITIONS: a requisition is raised when a component is rejected at precheck. Its status moves " +
             "Pending-Planner (planner reviews) -> Pending-Store (store handles) -> Completed; a cancelled one shows as " +
@@ -231,7 +231,6 @@ namespace Precheck.Host.Agents
                 AIFunctionFactory.Create(_tools.CreateStandardMsnNumberAsync, name: "create_standard_msn_number"),
                 AIFunctionFactory.Create(_tools.GetProductionOrderIdNumbersAsync, name: "get_production_order_id_numbers"),
                 AIFunctionFactory.Create(_tools.GetQrCodeStatusSummaryAsync, name: "get_qr_code_status_summary"),
-                AIFunctionFactory.Create(_tools.GetAnalyticsSummaryAsync, name: "get_analytics_summary"),
                 AIFunctionFactory.Create(_tools.GetConsumedQrCodesAsync, name: "get_consumed_qr_codes"),
                 AIFunctionFactory.Create(_tools.StoreInQrCodeAsync, name: "store_in_qr_code"),
                 AIFunctionFactory.Create(_tools.GetQrCodeConsumptionOptionsAsync, name: "get_qr_code_consumption_options"),
