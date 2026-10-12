@@ -59,6 +59,22 @@ namespace Precheck.Models.DTOs.Chatbot
         public string Message { get; set; } = string.Empty;
     }
 
+    // Result of storing a QR code in (QR code status 'qrcodegenerated' -> 'readyforconsumption').
+    public class QrStoreInResultDto
+    {
+        public string? QrCodeNumber { get; set; }
+        public bool StoredIn { get; set; }
+        public string? PreviousStatus { get; set; }
+        public string? CurrentStatus { get; set; }
+        public string? DrawingNumber { get; set; }
+        public string? ProductionSeries { get; set; }
+        public string? ComponentType { get; set; }
+        public decimal? Quantity { get; set; }
+        public string? RackLocation { get; set; }
+        public DateTime? StoreInDate { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
     public class QrCodeStatusSummaryDto
     {
         public int TotalQrCodes { get; set; }
